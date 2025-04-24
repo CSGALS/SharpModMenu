@@ -28,6 +28,7 @@ public sealed class SharpModMenuPlugin : BasePlugin
 		DriverInstance = new();
 		UniversalMenu.RegisterDriver("SharpModMenu", DriverInstance);
 
+		RegisterListener<OnTick>(OnTick);
 		RegisterListener<CheckTransmit>(OnCheckTransmit);
 	}
 
@@ -36,7 +37,17 @@ public sealed class SharpModMenuPlugin : BasePlugin
 		UniversalMenu.UnregisterDriver("SharpModMenu");
 	}
 
-	// prevent transmitting a player's menu entities to other players
+	private void OnTick()
+	{
+		foreach (var menuState in DriverInstance!.ActiveHtmlMenuStates)
+		{
+			if (menuState.HtmlContent is null)
+				continue;
+			menuState.Player.PrintToCenterHtml(menuState.HtmlContent);
+		}
+	}
+
+	// prevent transmitting a player's menuState entities to other players
 	// TODO: hot path, this needs to be extremely quick, precompute data structure for fast iteration
 	// NOTE: do not replace with foreach, else you will put a lot of pressure on the garbage collector
 	private void OnCheckTransmit(CCheckTransmitInfoList infoList)

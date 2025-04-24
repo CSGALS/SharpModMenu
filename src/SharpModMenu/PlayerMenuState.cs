@@ -83,6 +83,22 @@ internal class PlayerMenuState : IDisposable
 		}
 	}
 
+	private bool _PresentingHtml;
+	private bool PresentingHtml
+	{
+		get => _PresentingHtml;
+		set
+		{
+			if (value == _PresentingHtml)
+				return;
+			_PresentingHtml = value;
+			if (value)
+				Driver.ActiveHtmlMenuStates.Add(this);
+			else
+				Driver.ActiveHtmlMenuStates.Remove(this);
+		}
+	}
+
 	public void Refresh(bool sortPriorities = true)
 	{
 		if (sortPriorities)
@@ -118,8 +134,15 @@ internal class PlayerMenuState : IDisposable
 			return;
 		}
 
-		if (!DrawActiveMenu())
-			DrawActiveMenuChat();
+		if (DrawActiveMenu())
+		{
+			PresentingHtml = false;
+		}
+		else
+		{
+			DrawActiveMenuHtml();
+			PresentingHtml = true;
+		}
 	}
 
 	public void Dispose()
@@ -255,6 +278,9 @@ internal class PlayerMenuState : IDisposable
 
 	private CCSGOViewModel? LastViewmodel { get; set; }
 	private Menu? LastPresented { get; set; }
+	private readonly StringBuilder ForegroundTextSb = new();
+	private readonly StringBuilder BackgroundTextSb = new();
+	private readonly StringBuilder BackgroundSb = new();
 	public bool DrawActiveMenu()
 	{
 		if (ReferenceEquals(CurrentMenu, LastPresented))
@@ -320,49 +346,7 @@ internal class PlayerMenuState : IDisposable
 			linesWrote++;
 		}
 
-		{ // build the strings
-
-			writeLine(CurrentMenu.Title, background: true);
-
-			var itemsStart = CurrentMenu.CurrentPage * Menu.ItemsPerPage;
-			var itemsInPage = Math.Min(CurrentMenu.Items.Count, itemsStart + Menu.ItemsPerPage) - itemsStart;
-
-			for (int i = 0; i < itemsInPage; i++)
-			{
-				var item = CurrentMenu.Items[itemsStart + i];
-				writeLine($"{i + 1}. {item.Title}", background: !item.Enabled);
-				if (item.Subtitle is not null)
-					writeLine($"  {item.Subtitle}", background: true);
-			}
-
-			var btnStates = CurrentMenu.GetButtonStates();
-			if (btnStates.ShowNavigation || btnStates.ShowExitButton)
-			{
-				int maxItemsPerPage = Math.Min(Menu.ItemsPerPage, CurrentMenu.Items.Count);
-				int blankLines = maxItemsPerPage - itemsInPage + 1;
-
-				for (int i = 0; i < blankLines; i++)
-					writeLine(string.Empty, background: false);
-
-				if (btnStates.ShowNavigation)
-				{
-					if (btnStates.ShowPrevButton)
-						writeLine("8. Previous", background: false);
-					else if (btnStates.ShowBackButton)
-						writeLine("8. Back", background: false);
-					else
-						writeLine(string.Empty, background: false);
-
-					if (btnStates.ShowNextButton)
-						writeLine("9. Next", background: false);
-					else
-						writeLine(string.Empty, background: false);
-				}
-
-				if (btnStates.ShowExitButton)
-					writeLine("0. Exit", background: true);
-			}
-		}
+		BuildMenuStrings(CurrentMenu, writeLine);
 
 		var position = eyeAngles.Position + eyeAngles.Forward * 7.0f + eyeAngles.Right * MenuPosition.X + eyeAngles.Up * MenuPosition.Y;
 		var angle = new Vector3()
@@ -378,41 +362,84 @@ internal class PlayerMenuState : IDisposable
 		return true;
 	}
 
-	private readonly StringBuilder ForegroundTextSb = new();
-	private readonly StringBuilder BackgroundTextSb = new();
-	private readonly StringBuilder BackgroundSb = new();
 
-	public void DrawActiveMenuChat()
+	private readonly StringBuilder HtmlTextSb = new();
+	public string? HtmlContent { get; set; } = null;
+	public void DrawActiveMenuHtml()
 	{
 		if (CurrentMenu is null)
-			return;
-
-		Player.PrintToChat($"{ChatColors.White}{CurrentMenu.Title}:{ChatColors.Default}");
-
-		var btnStates = CurrentMenu.GetButtonStates();
-
-		var itemsStart = CurrentMenu.CurrentPage * Menu.ItemsPerPage;
-		var itemsTo = Math.Min(itemsStart + Menu.ItemsPerPage, CurrentMenu.Items.Count);
-		for (int i = 0; i < Menu.ItemsPerPage && itemsStart + i < itemsTo; i++)
 		{
-			var item = CurrentMenu.Items[itemsStart + i];
-
-			if (item.Enabled)
-				Player.PrintToChat($"{ChatColors.Yellow}{i + 1}. {item.Title}{ChatColors.Default}");
-			else
-				Player.PrintToChat($"{ChatColors.Grey}{i + 1}. {item.Title}{ChatColors.Default}");
-
-			if (!string.IsNullOrEmpty(item.Subtitle))
-				Player.PrintToChat($"{ChatColors.Silver}   {item.Subtitle}{ChatColors.Default}");
+			HtmlContent = null;
+			return;
 		}
 
-		if (btnStates.ShowBackButton)
-			Player.PrintToChat($"{ChatColors.Orange}8. Back{ChatColors.Default}");
-		if (btnStates.ShowPrevButton)
-			Player.PrintToChat($"{ChatColors.Orange}8. Previous{ChatColors.Default}");
-		if (btnStates.ShowNextButton)
-			Player.PrintToChat($"{ChatColors.Orange}9. Next{ChatColors.Default}");
-		if (btnStates.ShowExitButton)
-			Player.PrintToChat($"{ChatColors.White}0. Exit{ChatColors.Default}");
+
+		bool firstLine = true;
+		int linesWrote = 0;
+		void writeLine(string text, bool background)
+		{
+			if (string.IsNullOrEmpty(text))
+				return;
+
+			if (firstLine)
+				firstLine = false;
+			else
+				HtmlTextSb.Append("<br>");
+
+			var color = background ? "#E7CCA5" : "#E28B12";
+			HtmlTextSb.Append($"<font color='{color}'>{text}</font>");
+			linesWrote++;
+		}
+
+		HtmlTextSb.Clear();
+		HtmlTextSb.Append("<font class='fontSize-s'>");
+		BuildMenuStrings(CurrentMenu, writeLine);
+		HtmlTextSb.Append("</font>");
+
+		HtmlContent = HtmlTextSb.ToString();
+	}
+
+	private void BuildMenuStrings(Menu currentMenu, Action<string, bool> writeLine)
+	{
+		writeLine(currentMenu.Title, true);
+
+		var itemsStart = currentMenu.CurrentPage * Menu.ItemsPerPage;
+		var itemsInPage = Math.Min(currentMenu.Items.Count, itemsStart + Menu.ItemsPerPage) - itemsStart;
+
+		for (int i = 0; i < itemsInPage; i++)
+		{
+			var item = currentMenu.Items[itemsStart + i];
+			writeLine($"{i + 1}. {item.Title}", !item.Enabled);
+			if (item.Subtitle is not null)
+				writeLine($"  {item.Subtitle}", true);
+		}
+
+		var btnStates = currentMenu.GetButtonStates();
+		if (btnStates.ShowNavigation || btnStates.ShowExitButton)
+		{
+			int maxItemsPerPage = Math.Min(Menu.ItemsPerPage, currentMenu.Items.Count);
+			int blankLines = maxItemsPerPage - itemsInPage + 1;
+
+			for (int i = 0; i < blankLines; i++)
+				writeLine(string.Empty, false);
+
+			if (btnStates.ShowNavigation)
+			{
+				if (btnStates.ShowPrevButton)
+					writeLine("8. Previous", false);
+				else if (btnStates.ShowBackButton)
+					writeLine("8. Back", false);
+				else
+					writeLine(string.Empty, false);
+
+				if (btnStates.ShowNextButton)
+					writeLine("9. Next", false);
+				else
+					writeLine(string.Empty, false);
+			}
+
+			if (btnStates.ShowExitButton)
+				writeLine("0. Exit", true);
+		}
 	}
 }

@@ -12,7 +12,8 @@ namespace SharpModMenu;
 internal sealed class MenuDriver : IMenuAPI
 {
 	private Dictionary<ulong, PlayerMenuState> MenuStates = new();
-	internal List<(CBaseEntity ent, CCSPlayerController target)> MenuEntities { get; } = new();
+	public List<(CBaseEntity ent, CCSPlayerController target)> MenuEntities { get; } = new();
+	public List<PlayerMenuState> ActiveHtmlMenuStates { get; } = new();
 
 	internal PlayerMenuState GetMenuState(CCSPlayerController player, bool create = false)
 	{
