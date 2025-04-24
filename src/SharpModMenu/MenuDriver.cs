@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 
 using CounterStrikeSharp.API.Core;
@@ -13,13 +12,15 @@ namespace SharpModMenu;
 internal sealed class MenuDriver : IMenuAPI
 {
 	private Dictionary<ulong, PlayerMenuState> MenuStates = new();
+	internal List<(CBaseEntity ent, CCSPlayerController target)> MenuEntities { get; } = new();
+
 	internal PlayerMenuState GetMenuState(CCSPlayerController player, bool create = false)
 	{
 		if (!MenuStates.TryGetValue(player.SteamID, out var menuState))
 		{
 			if (!create)
-				return new() { Player = player }; // throw a menu state into the ether
-			MenuStates.Add(player.SteamID, menuState = new() { Player = player });
+				return new() { Player = player, Driver = this }; // throw a menu state into the ether
+			MenuStates.Add(player.SteamID, menuState = new() { Player = player, Driver = this });
 		}
 		return menuState;
 	}

@@ -48,7 +48,7 @@ internal class Menu : IMenu, IMenuPriorityExtension, INavigateBackMenuExtension
 			},
 		};
 		ret.ShowPrevButton = CurrentPage > 0;
-		ret.ShowNextButton = CurrentPage * ItemsPerPage < Items.Count;
+		ret.ShowNextButton = (CurrentPage + 1) * ItemsPerPage < Items.Count;
 		ret.ShowNavigation = ret.ShowBackButton || ret.ShowPrevButton || ret.ShowNextButton;
 		return ret;
 	}
@@ -86,7 +86,7 @@ internal class Menu : IMenu, IMenuPriorityExtension, INavigateBackMenuExtension
 	{
 		Ctr.Unregister();
 		MenuState.FocusStack.Remove(this);
-		MenuState.Refresh();
+		MenuState.Refresh(sortPriorities: false);
 	}
 
 	// IMenuPriorityExtension

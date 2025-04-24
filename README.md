@@ -1,3 +1,7 @@
 # SharpModMenu
 
 A native CSSUniversalMenuAPI implementation, mirroring the behavior of SourceMod radio menus for CounterStrikeSharp.
+
+![](./docs/GunsMenuCropped.png)
+
+Many thanks to [@T3Marius's CS2ScreenMenuAPI](https://github.com/T3Marius/CS2ScreenMenuAPI) for acting as reference when it comes to using the point_worldtext entity.

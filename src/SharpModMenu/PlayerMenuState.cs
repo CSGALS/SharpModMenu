@@ -1,18 +1,26 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
+using System.Numerics;
+using System.Text;
 
+using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
+using CounterStrikeSharp.API.Modules.Entities;
 using CounterStrikeSharp.API.Modules.Utils;
 
 using CSSUniversalMenuAPI;
 
+using Vector = CounterStrikeSharp.API.Modules.Utils.Vector;
+
 namespace SharpModMenu;
 
-internal class PlayerMenuState
+internal class PlayerMenuState : IDisposable
 {
 	public required CCSPlayerController Player { get; init; }
+	public required MenuDriver Driver { get; init; }
+
 	public List<Menu> FocusStack { get; } = new();
-	public Menu? LastPresented { get; set; }
 	public Menu? CurrentMenu { get; set; }
 
 	private bool _HasBinds;
@@ -45,7 +53,11 @@ internal class PlayerMenuState
 				break;
 			case PlayerKey.D8:
 				if (buttonState.ShowPrevButton)
+				{
 					CurrentMenu.CurrentPage--;
+					CurrentMenu.IsDirty = true;
+					Refresh(sortPriorities: false);
+				}
 				else if (buttonState.ShowBackButton)
 				{
 					if (CurrentMenu.NavigateBack is not null)
@@ -56,7 +68,11 @@ internal class PlayerMenuState
 				break;
 			case PlayerKey.D9:
 				if (buttonState.ShowNextButton)
+				{
 					CurrentMenu.CurrentPage++;
+					CurrentMenu.IsDirty = true;
+					Refresh(sortPriorities: false);
+				}
 				break;
 			case PlayerKey.D0:
 				if (buttonState.ShowExitButton)
@@ -92,14 +108,282 @@ internal class PlayerMenuState
 		}
 
 		CurrentMenu = FocusStack.Count > 0 ? FocusStack[0] : null;
-		DrawActiveMenu();
+
+		if (CreateInitialInvisibleWorldTextEntity())
+		{
+			Server.NextFrame(() =>
+			{
+				Refresh(sortPriorities: false);
+			});
+			return;
+		}
+
+		if (!DrawActiveMenu())
+			DrawActiveMenuChat();
 	}
 
-	public void DrawActiveMenu()
+	public void Dispose()
 	{
-		if (CurrentMenu == LastPresented && CurrentMenu?.IsDirty is null or false)
-			return;
+		DestroyEntities();
+	}
 
+	private CPointWorldText? ForegroundText { get; set; }
+	private CPointWorldText? BackgroundText { get; set; }
+	private CPointWorldText? Background { get; set; }
+	private void DestroyEntities()
+	{
+		Driver.MenuEntities.RemoveAll(x => x.target == Player);
+
+		if (ForegroundText is not null && ForegroundText.IsValid)
+			ForegroundText?.Remove();
+
+		if (BackgroundText is not null && BackgroundText.IsValid)
+			BackgroundText?.Remove();
+
+		if (Background is not null && Background.IsValid)
+			Background?.Remove();
+
+		ForegroundText = BackgroundText = Background = null;
+		Console.WriteLine("DEBUG: DestroyEntities()");
+	}
+
+	private static readonly Color ForegroundTextColor = Color.FromArgb(229, 150, 32); // 245, 177, 103 with a white bg, maybe 240, 160, 30 at 95% opacity?
+	private static readonly Color BackgroundTextColor = Color.FromArgb(234, 209, 175);
+
+	private void CreateEntities()
+	{
+		ForegroundText = CreateWorldText(textColor: ForegroundTextColor, false, -0.000f);
+		BackgroundText = CreateWorldText(textColor: BackgroundTextColor, false, -0.001f);
+		Background = CreateWorldText(textColor: Color.FromArgb(200, 127, 127, 127), true, -0.002f);
+	}
+
+	private bool _Created = false;
+	/// <summary>
+	/// The first world text isn't shown for some reason, this creates a barebones version then immediately destroys it
+	/// </summary>
+	private bool CreateInitialInvisibleWorldTextEntity()
+	{
+		if (_Created)
+			return false;
+
+		var viewmodel = Player.GetPredictedViewmodel();
+		if (viewmodel is null)
+		{
+			CurrentMenu?.Close();
+			return false;
+		}
+
+		var entity = CreateWorldText(Color.Orange, drawBackground: false, depthOffset: 0.0f);
+		if (entity is null)
+		{
+			CurrentMenu?.Close();
+			return false;
+		}
+
+		var maybeAngles = Player.GetEyeAngles();
+		if (!maybeAngles.HasValue)
+		{
+			CurrentMenu?.Close();
+			return false;
+		}
+
+		UpdateEntity(entity, viewmodel, "Hey", maybeAngles.Value.Position, maybeAngles.Value.Angle);
+		entity.Remove();
+
+		_Created = true;
+		return true;
+	}
+
+	private CPointWorldText CreateWorldText(
+		Color textColor,
+		bool drawBackground,
+		float depthOffset,
+		string text = "",
+		int fontSize = 25,
+		string fontName = "Tahoma Bold")
+	{
+		var ent = Utilities.CreateEntityByName<CPointWorldText>("point_worldtext")!;
+
+		if (ent is not { IsValid: true })
+			throw new Exception("CreateWorldText(): Failed to create entity");
+
+		Driver.MenuEntities.Add((ent, Player));
+
+		ent.MessageText = text;
+		ent.Enabled = true;
+		ent.FontName = fontName;
+		ent.FontSize = fontSize;
+		ent.Fullbright = true;
+		ent.Color = textColor;
+		ent.WorldUnitsPerPx = 0.0085f;
+		ent.JustifyHorizontal = PointWorldTextJustifyHorizontal_t.POINT_WORLD_TEXT_JUSTIFY_HORIZONTAL_LEFT;
+		ent.JustifyVertical = PointWorldTextJustifyVertical_t.POINT_WORLD_TEXT_JUSTIFY_VERTICAL_CENTER;
+		ent.ReorientMode = PointWorldTextReorientMode_t.POINT_WORLD_TEXT_REORIENT_NONE;
+		ent.RenderMode = RenderMode_t.kRenderNormal;
+		ent.DrawBackground = drawBackground;
+		ent.BackgroundBorderHeight = 0.1f;
+		ent.BackgroundBorderWidth = 0.1f;
+		ent.DepthOffset = depthOffset;
+		ent.DispatchSpawn();
+		return ent;
+	}
+
+	private static Vector _Pos = new();
+	private static QAngle _Ang = new();
+	private void UpdateEntity(
+		CPointWorldText ent,
+		CCSGOViewModel viewmodel,
+		string? newText,
+		Vector3 position,
+		Vector3 angles)
+	{
+		_Pos.X = position.X;
+		_Pos.Y = position.Y;
+		_Pos.Z = position.Z;
+		_Ang.X = angles.X;
+		_Ang.Y = angles.Y;
+		_Ang.Z = angles.Z;
+		if (newText is not null)
+			ent.MessageText = newText;
+		ent.Teleport(_Pos, _Ang, null);
+		ent.AcceptInput("SetParent", viewmodel, null, "!activator");
+		if (newText is not null)
+			Utilities.SetStateChanged(ent, "CPointWorldText", "m_messageText");
+	}
+
+	private readonly Vector MenuPosition = new(-7.0f, 0.0f);
+
+	private CCSGOViewModel? LastViewmodel { get; set; }
+	private Menu? LastPresented { get; set; }
+	public bool DrawActiveMenu()
+	{
+		if (ReferenceEquals(CurrentMenu, LastPresented))
+		{
+			if (CurrentMenu is not null && !CurrentMenu.IsDirty)
+				return true;
+		}
+
+		if (CurrentMenu is null)
+		{
+			if (LastPresented is not null)
+				DestroyEntities();
+			LastPresented = CurrentMenu;
+			return true;
+		}
+		LastPresented = CurrentMenu;
+
+		CurrentMenu.IsDirty = false;
+
+		bool allValid =
+			(ForegroundText?.IsValid ?? false) &&
+			(BackgroundText?.IsValid ?? false) &&
+			(Background?.IsValid ?? false);
+		if (!allValid)
+		{
+			DestroyEntities();
+			CreateEntities();
+		}
+
+		var maybeEyeAngles = Player.GetEyeAngles();
+		if (!maybeEyeAngles.HasValue)
+			return false;
+		var eyeAngles = maybeEyeAngles.Value;
+
+		var predictedViewmodel = Player.GetPredictedViewmodel();
+		if (predictedViewmodel is null)
+			return false;
+		LastViewmodel = predictedViewmodel;
+
+		ForegroundTextSb.Clear();
+		BackgroundTextSb.Clear();
+		BackgroundSb.Clear();
+
+		bool firstLine = true;
+		int linesWrote = 0;
+		void writeLine(string text, bool background)
+		{
+			if (firstLine)
+				firstLine = false;
+			else
+			{
+				ForegroundTextSb.AppendLine();
+				BackgroundTextSb.AppendLine();
+				BackgroundSb.AppendLine();
+			}
+
+			BackgroundSb.Append(text);
+			if (background)
+				BackgroundTextSb.Append(text);
+			else
+				ForegroundTextSb.Append(text);
+
+			linesWrote++;
+		}
+
+		{ // build the strings
+
+			writeLine(CurrentMenu.Title, background: true);
+
+			var itemsStart = CurrentMenu.CurrentPage * Menu.ItemsPerPage;
+			var itemsInPage = Math.Min(CurrentMenu.Items.Count, itemsStart + Menu.ItemsPerPage) - itemsStart;
+
+			for (int i = 0; i < itemsInPage; i++)
+			{
+				var item = CurrentMenu.Items[itemsStart + i];
+				writeLine($"{i + 1}. {item.Title}", background: !item.Enabled);
+				if (item.Subtitle is not null)
+					writeLine($"  {item.Subtitle}", background: true);
+			}
+
+			var btnStates = CurrentMenu.GetButtonStates();
+			if (btnStates.ShowNavigation || btnStates.ShowExitButton)
+			{
+				int maxItemsPerPage = Math.Min(Menu.ItemsPerPage, CurrentMenu.Items.Count);
+				int blankLines = maxItemsPerPage - itemsInPage + 1;
+
+				for (int i = 0; i < blankLines; i++)
+					writeLine(string.Empty, background: false);
+
+				if (btnStates.ShowNavigation)
+				{
+					if (btnStates.ShowPrevButton)
+						writeLine("8. Previous", background: false);
+					else if (btnStates.ShowBackButton)
+						writeLine("8. Back", background: false);
+					else
+						writeLine(string.Empty, background: false);
+
+					if (btnStates.ShowNextButton)
+						writeLine("9. Next", background: false);
+					else
+						writeLine(string.Empty, background: false);
+				}
+
+				if (btnStates.ShowExitButton)
+					writeLine("0. Exit", background: true);
+			}
+		}
+
+		var position = eyeAngles.Position + eyeAngles.Forward * 7.0f + eyeAngles.Right * MenuPosition.X + eyeAngles.Up * MenuPosition.Y;
+		var angle = new Vector3()
+		{
+			Y = eyeAngles.Angle.Y + 270.0f,
+			Z = 90.0f - eyeAngles.Angle.X,
+			X = 0.0f
+		};
+
+		UpdateEntity(ForegroundText!, predictedViewmodel, ForegroundTextSb.ToString(), position, angle);
+		UpdateEntity(BackgroundText!, predictedViewmodel, BackgroundTextSb.ToString(), position, angle);
+		UpdateEntity(Background!, predictedViewmodel, BackgroundSb.ToString(), position, angle);
+		return true;
+	}
+
+	private readonly StringBuilder ForegroundTextSb = new();
+	private readonly StringBuilder BackgroundTextSb = new();
+	private readonly StringBuilder BackgroundSb = new();
+
+	public void DrawActiveMenuChat()
+	{
 		if (CurrentMenu is null)
 			return;
 
@@ -127,7 +411,7 @@ internal class PlayerMenuState
 		if (btnStates.ShowPrevButton)
 			Player.PrintToChat($"{ChatColors.Orange}8. Previous{ChatColors.Default}");
 		if (btnStates.ShowNextButton)
-			Player.PrintToChat($"{ChatColors.Orange}9. Back{ChatColors.Default}");
+			Player.PrintToChat($"{ChatColors.Orange}9. Next{ChatColors.Default}");
 		if (btnStates.ShowExitButton)
 			Player.PrintToChat($"{ChatColors.White}0. Exit{ChatColors.Default}");
 	}

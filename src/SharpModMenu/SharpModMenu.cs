@@ -1,9 +1,13 @@
+using System.Collections.Generic;
+
+using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
 
 using CSSUniversalMenuAPI;
+using static CounterStrikeSharp.API.Core.Listeners;
 
 
 namespace SharpModMenu;
@@ -23,11 +27,37 @@ public sealed class SharpModMenuPlugin : BasePlugin
 	{
 		DriverInstance = new();
 		UniversalMenu.RegisterDriver("SharpModMenu", DriverInstance);
+
+		RegisterListener<CheckTransmit>(OnCheckTransmit);
 	}
 
 	public override void Unload(bool hotReload)
 	{
 		UniversalMenu.UnregisterDriver("SharpModMenu");
+	}
+
+	// prevent transmitting a player's menu entities to other players
+	// TODO: hot path, this needs to be extremely quick, precompute data structure for fast iteration
+	// NOTE: do not replace with foreach, else you will put a lot of pressure on the garbage collector
+	private void OnCheckTransmit(CCheckTransmitInfoList infoList)
+	{
+		if (DriverInstance is null)
+			return;
+		return;
+
+		if (DriverInstance.MenuEntities.Count == 0)
+			return;
+
+		for (int n = 0; n < infoList.Count; n++)
+		{
+			for (int i = 0; i < DriverInstance.MenuEntities.Count; i++)
+			{
+				var info = infoList[n];
+				var entInfo = DriverInstance.MenuEntities[i];
+				if (entInfo.target != info.player && entInfo.target.IsValid)
+					info.info.TransmitEntities.Remove(entInfo.target);
+			}
+		}
 	}
 
 	[GameEventHandler(HookMode.Pre)]
