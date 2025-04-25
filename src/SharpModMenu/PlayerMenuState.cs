@@ -83,19 +83,20 @@ internal class PlayerMenuState : IDisposable
 		}
 	}
 
-	private bool _PresentingHtml;
-	private bool PresentingHtml
+	public bool PresentingHtml { get; set; }
+	private bool _MenuActive;
+	private bool MenuActive
 	{
-		get => _PresentingHtml;
+		get => _MenuActive;
 		set
 		{
-			if (value == _PresentingHtml)
+			if (value == _MenuActive)
 				return;
-			_PresentingHtml = value;
+			_MenuActive = value;
 			if (value)
-				Driver.ActiveHtmlMenuStates.Add(this);
+				Driver.ActiveMenuStates.Add(this);
 			else
-				Driver.ActiveHtmlMenuStates.Remove(this);
+				Driver.ActiveMenuStates.Remove(this);
 		}
 	}
 
@@ -124,13 +125,11 @@ internal class PlayerMenuState : IDisposable
 		}
 
 		CurrentMenu = FocusStack.Count > 0 ? FocusStack[0] : null;
+		MenuActive = CurrentMenu is not null;
 
 		if (CreateInitialInvisibleWorldTextEntity())
 		{
-			Server.NextFrame(() =>
-			{
-				Refresh(sortPriorities: false);
-			});
+			ForceRefresh = true;
 			return;
 		}
 
@@ -140,6 +139,8 @@ internal class PlayerMenuState : IDisposable
 		}
 		else
 		{
+			if (!PresentingHtml)
+				DestroyEntities();
 			DrawActiveMenuHtml();
 			PresentingHtml = true;
 		}
@@ -167,7 +168,6 @@ internal class PlayerMenuState : IDisposable
 			Background?.Remove();
 
 		ForegroundText = BackgroundText = Background = null;
-		Console.WriteLine("DEBUG: DestroyEntities()");
 	}
 
 	private static readonly Color ForegroundTextColor = Color.FromArgb(229, 150, 32); // 245, 177, 103 with a white bg, maybe 240, 160, 30 at 95% opacity?
@@ -180,40 +180,37 @@ internal class PlayerMenuState : IDisposable
 		Background = CreateWorldText(textColor: Color.FromArgb(200, 127, 127, 127), true, -0.002f);
 	}
 
-	private bool _Created = false;
+	// sometimes creating an ent for a pawn requires it to be done twice, so
+	// do it twice whenever our observed entity changes
+	private nint? _CreatedFor = null;
 	/// <summary>
 	/// The first world text isn't shown for some reason, this creates a barebones version then immediately destroys it
 	/// </summary>
 	private bool CreateInitialInvisibleWorldTextEntity()
 	{
-		if (_Created)
+		var observerInfo = Player.GetObserverInfo();
+
+		if (_CreatedFor.HasValue && _CreatedFor.Value == observerInfo.Observing?.Handle)
 			return false;
 
-		var viewmodel = Player.GetPredictedViewmodel();
+		var viewmodel = observerInfo.GetPredictedViewmodel();
 		if (viewmodel is null)
-		{
-			CurrentMenu?.Close();
 			return false;
-		}
 
 		var entity = CreateWorldText(Color.Orange, drawBackground: false, depthOffset: 0.0f);
 		if (entity is null)
-		{
-			CurrentMenu?.Close();
 			return false;
-		}
 
-		var maybeAngles = Player.GetEyeAngles();
+		var maybeAngles = observerInfo.GetEyeAngles();
 		if (!maybeAngles.HasValue)
-		{
-			CurrentMenu?.Close();
 			return false;
-		}
 
-		UpdateEntity(entity, viewmodel, "Hey", maybeAngles.Value.Position, maybeAngles.Value.Angle);
+		UpdateEntity(entity, viewmodel, "Hey", maybeAngles.Value.Position, maybeAngles.Value.Angle, updateText: true, updateParent: true);
 		entity.Remove();
 
-		_Created = true;
+		_CreatedFor = observerInfo.Observing?.Handle ?? nint.Zero;
+
+		Console.WriteLine("CreateInitialInvisibleWorldTextEntity(): DONE");
 		return true;
 	}
 
@@ -255,10 +252,12 @@ internal class PlayerMenuState : IDisposable
 	private static QAngle _Ang = new();
 	private void UpdateEntity(
 		CPointWorldText ent,
-		CCSGOViewModel viewmodel,
-		string? newText,
+		CCSGOViewModel? viewmodel,
+		string newText,
 		Vector3 position,
-		Vector3 angles)
+		Vector3 angles,
+		bool updateText = true,
+		bool updateParent = true)
 	{
 		_Pos.X = position.X;
 		_Pos.Y = position.Y;
@@ -266,21 +265,27 @@ internal class PlayerMenuState : IDisposable
 		_Ang.X = angles.X;
 		_Ang.Y = angles.Y;
 		_Ang.Z = angles.Z;
-		if (newText is not null)
+
+		if (updateText)
 			ent.MessageText = newText;
 		ent.Teleport(_Pos, _Ang, null);
-		ent.AcceptInput("SetParent", viewmodel, null, "!activator");
-		if (newText is not null)
+
+		if (updateParent)
+			ent.AcceptInput("SetParent", viewmodel, null, "!activator");
+
+		if (updateText)
 			Utilities.SetStateChanged(ent, "CPointWorldText", "m_messageText");
 	}
 
-	private readonly Vector MenuPosition = new(-7.0f, 0.0f);
+	private readonly Vector MenuPosition = new(-6.9f, 0.0f);
 
-	private CCSGOViewModel? LastViewmodel { get; set; }
 	private Menu? LastPresented { get; set; }
 	private readonly StringBuilder ForegroundTextSb = new();
 	private readonly StringBuilder BackgroundTextSb = new();
 	private readonly StringBuilder BackgroundSb = new();
+	private nint MenuCurrentObserver { get; set; } = nint.Zero;
+	private ObserverMode MenuCurrentObserverMode { get; set; }
+	private CCSGOViewModel? MenuCurrentViewmodel { get; set; }
 	public bool DrawActiveMenu()
 	{
 		if (ReferenceEquals(CurrentMenu, LastPresented))
@@ -300,25 +305,18 @@ internal class PlayerMenuState : IDisposable
 
 		CurrentMenu.IsDirty = false;
 
-		bool allValid =
-			(ForegroundText?.IsValid ?? false) &&
-			(BackgroundText?.IsValid ?? false) &&
-			(Background?.IsValid ?? false);
-		if (!allValid)
-		{
-			DestroyEntities();
-			CreateEntities();
-		}
+		var observerInfo = Player.GetObserverInfo();
+		if (observerInfo.Mode != ObserverMode.FirstPerson)
+			return false;
 
-		var maybeEyeAngles = Player.GetEyeAngles();
+		var maybeEyeAngles = observerInfo.GetEyeAngles();
 		if (!maybeEyeAngles.HasValue)
 			return false;
 		var eyeAngles = maybeEyeAngles.Value;
 
-		var predictedViewmodel = Player.GetPredictedViewmodel();
+		var predictedViewmodel = observerInfo.GetPredictedViewmodel();
 		if (predictedViewmodel is null)
 			return false;
-		LastViewmodel = predictedViewmodel;
 
 		ForegroundTextSb.Clear();
 		BackgroundTextSb.Clear();
@@ -356,12 +354,24 @@ internal class PlayerMenuState : IDisposable
 			X = 0.0f
 		};
 
+		MenuCurrentObserver = observerInfo.Observing?.Handle ?? nint.Zero;
+		MenuCurrentObserverMode = observerInfo.Mode;
+		MenuCurrentViewmodel = predictedViewmodel;
+
+		bool allValid =
+			(ForegroundText?.IsValid ?? false) &&
+			(BackgroundText?.IsValid ?? false) &&
+			(Background?.IsValid ?? false);
+		if (!allValid)
+		{
+			DestroyEntities();
+			CreateEntities();
+		}
 		UpdateEntity(ForegroundText!, predictedViewmodel, ForegroundTextSb.ToString(), position, angle);
 		UpdateEntity(BackgroundText!, predictedViewmodel, BackgroundTextSb.ToString(), position, angle);
 		UpdateEntity(Background!, predictedViewmodel, BackgroundSb.ToString(), position, angle);
 		return true;
 	}
-
 
 	private readonly StringBuilder HtmlTextSb = new();
 	public string? HtmlContent { get; set; } = null;
@@ -372,7 +382,6 @@ internal class PlayerMenuState : IDisposable
 			HtmlContent = null;
 			return;
 		}
-
 
 		bool firstLine = true;
 		int linesWrote = 0;
@@ -440,6 +449,30 @@ internal class PlayerMenuState : IDisposable
 
 			if (btnStates.ShowExitButton)
 				writeLine("0. Exit", true);
+		}
+	}
+
+	public bool ForceRefresh = true;
+	public void Tick()
+	{
+		if (CurrentMenu is null)
+			return;
+
+		if (PresentingHtml && HtmlContent is not null)
+			Player.PrintToCenterHtml(HtmlContent);
+
+		var observerInfo = Player.GetObserverInfo();
+
+		bool refresh =
+			ForceRefresh ||
+			observerInfo.Mode != MenuCurrentObserverMode ||
+			observerInfo.Observing?.Handle != MenuCurrentObserver;
+
+		if (refresh)
+		{
+			ForceRefresh = false;
+			CurrentMenu.IsDirty = true;
+			Refresh(sortPriorities: false);
 		}
 	}
 }

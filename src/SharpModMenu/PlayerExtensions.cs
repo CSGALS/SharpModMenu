@@ -1,3 +1,4 @@
+using System;
 using System.Numerics;
 
 using CounterStrikeSharp.API;
@@ -18,34 +19,55 @@ public struct EyeAngles
 	public Vector3 Up { get; set; }
 }
 
+public enum ObserverMode
+{
+	FirstPerson,
+	ThirdPerson,
+	Roaming,
+}
+
+public record struct ObserverInfo(ObserverMode Mode, CCSPlayerPawnBase? Observing);
+
 internal static class PlayerExtensions
 {
-	public static CCSPlayerPawn? GetPlayerPawn(this CCSPlayerController player)
+	public static ObserverInfo GetObserverInfo(this CCSPlayerController player)
 	{
 		if (player.Pawn.Value is not CBasePlayerPawn pawn)
-			return null;
+			return new() { Mode = ObserverMode.Roaming, Observing = null };
 
-		if (pawn.LifeState == (byte)LifeState_t.LIFE_DEAD)
+		if (pawn.ObserverServices is not CPlayer_ObserverServices observerServices)
+			return new() { Mode = ObserverMode.FirstPerson, Observing = pawn.As<CCSPlayerPawnBase>() };
+
+		var observerMode = (ObserverMode_t)observerServices.ObserverMode;
+		var observing = observerServices.ObserverTarget?.Value?.As<CCSPlayerPawnBase>();
+
+		return new()
 		{
-			if (pawn.ObserverServices?.ObserverTarget.Value?.As<CBasePlayerPawn>() is not CBasePlayerPawn observer)
-				return null;
-			pawn = observer;
-		}
-		return pawn.As<CCSPlayerPawn>();
+			Mode = observerMode switch
+			{
+				ObserverMode_t.OBS_MODE_NONE => ObserverMode.Roaming,
+				ObserverMode_t.OBS_MODE_FIXED => ObserverMode.Roaming,
+				ObserverMode_t.OBS_MODE_IN_EYE => ObserverMode.FirstPerson,
+				ObserverMode_t.OBS_MODE_CHASE => ObserverMode.ThirdPerson,
+				ObserverMode_t.OBS_MODE_ROAMING => ObserverMode.Roaming,
+				ObserverMode_t.OBS_MODE_DIRECTED => ObserverMode.Roaming,
+				_ => ObserverMode.Roaming,
+			},
+			Observing = observing,
+		};
 	}
 
 	public static Vector _Forward = new(), _Right = new(), _Up = new();
-	public static EyeAngles? GetEyeAngles(this CCSPlayerController player)
+	public static EyeAngles? GetEyeAngles(this ObserverInfo observerInfo)
 	{
-		var playerPawn = GetPlayerPawn(player);
-		if (playerPawn is null)
+		if (observerInfo.Observing is not CCSPlayerPawnBase pawn)
 			return null;
 
-		var eyeAngles = playerPawn!.EyeAngles;
+		var eyeAngles = pawn.EyeAngles;
 		NativeAPI.AngleVectors(eyeAngles.Handle, _Forward.Handle, _Right.Handle, _Up.Handle);
 
-		var origin = new Vector3(playerPawn.AbsOrigin!.X, playerPawn.AbsOrigin!.Y, playerPawn.AbsOrigin!.Z);
-		var viewOffset = new Vector3(playerPawn.ViewOffset.X, playerPawn.ViewOffset.Y, playerPawn.ViewOffset.Z);
+		var origin = new Vector3(pawn.AbsOrigin!.X, pawn.AbsOrigin!.Y, pawn.AbsOrigin!.Z);
+		var viewOffset = new Vector3(pawn.ViewOffset.X, pawn.ViewOffset.Y, pawn.ViewOffset.Z);
 
 		return new()
 		{
@@ -57,10 +79,13 @@ internal static class PlayerExtensions
 		};
 	}
 
-	public static CCSGOViewModel? GetPredictedViewmodel(this CCSPlayerController player)
+	public static CCSGOViewModel? GetPredictedViewmodel(this ObserverInfo observerInfo)
 	{
-		var pawn = GetPlayerPawn(player);
-		if (pawn?.ViewModelServices is null)
+		if (observerInfo.Observing is not CCSPlayerPawnBase pawn)
+			return null;
+		if (pawn.ViewModelServices is null)
+			return null;
+		if (observerInfo.Mode != ObserverMode.FirstPerson)
 			return null;
 
 		var offset = Schema.GetSchemaOffset("CCSPlayer_ViewModelServices", "m_hViewModel");

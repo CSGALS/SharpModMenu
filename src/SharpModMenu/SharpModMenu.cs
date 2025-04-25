@@ -39,12 +39,8 @@ public sealed class SharpModMenuPlugin : BasePlugin
 
 	private void OnTick()
 	{
-		foreach (var menuState in DriverInstance!.ActiveHtmlMenuStates)
-		{
-			if (menuState.HtmlContent is null)
-				continue;
-			menuState.Player.PrintToCenterHtml(menuState.HtmlContent);
-		}
+		for(int i = 0; i < DriverInstance!.ActiveMenuStates.Count; i++)
+			DriverInstance!.ActiveMenuStates[i].Tick();
 	}
 
 	// prevent transmitting a player's menuState entities to other players
@@ -54,8 +50,7 @@ public sealed class SharpModMenuPlugin : BasePlugin
 	{
 		if (DriverInstance is null)
 			return;
-		return;
-
+		
 		if (DriverInstance.MenuEntities.Count == 0)
 			return;
 
@@ -75,6 +70,47 @@ public sealed class SharpModMenuPlugin : BasePlugin
 	public HookResult OnPlayerDisconnect(EventPlayerDisconnect e, GameEventInfo info)
 	{
 		DriverInstance?.PlayerDisconnected(e.Userid);
+		return HookResult.Continue;
+	}
+
+	[GameEventHandler(HookMode.Post)]
+	public HookResult OnPlayerDisconnect(EventGameStart e, GameEventInfo info)
+	{
+		foreach (var state in DriverInstance!.ActiveMenuStates)
+			state.ForceRefresh = true;
+		return HookResult.Continue;
+	}
+
+	[GameEventHandler(HookMode.Post)]
+	public HookResult OnPlayerDisconnect(EventRoundStart e, GameEventInfo info)
+	{
+		foreach (var state in DriverInstance!.ActiveMenuStates)
+			state.ForceRefresh = true;
+		return HookResult.Continue;
+	}
+
+	[GameEventHandler(HookMode.Post)]
+	public HookResult OnPlayerDisconnect(EventBeginNewMatch e, GameEventInfo info)
+	{
+		foreach (var state in DriverInstance!.ActiveMenuStates)
+			state.ForceRefresh = true;
+		return HookResult.Continue;
+	}
+
+	[GameEventHandler(HookMode.Post)]
+	public HookResult OnPlayerDisconnect(EventGameInit e, GameEventInfo info)
+	{
+		foreach (var state in DriverInstance!.ActiveMenuStates)
+			state.ForceRefresh = true;
+		return HookResult.Continue;
+	}
+
+	[GameEventHandler(HookMode.Post)]
+	public HookResult OnPlayerDisconnect(EventPlayerSpawned e, GameEventInfo info)
+	{
+		foreach (var state in DriverInstance!.ActiveMenuStates)
+			if (e.Userid == state.Player)
+				state.ForceRefresh = true;
 		return HookResult.Continue;
 	}
 
@@ -186,5 +222,114 @@ public sealed class SharpModMenuPlugin : BasePlugin
 		if (menuState is null)
 			return;
 		menuState.HandleInput(PlayerKey.D0, info.CallingContext == CommandCallingContext.Console);
+	}
+
+
+	public static string[] PrimaryGuns { get; } =
+	{
+		"M4A4",
+		"M4A1-S",
+		"AK47",
+		"Galil",
+		"M249",
+		"Famas",
+		"SG553",
+		"AUG",
+		"Nova",
+		"AWP",
+		"SCAR-20",
+		"G3SG1",
+		"XM1014",
+		"MAC 10",
+		"MP9",
+		"MP5",
+		"UMP45",
+		"P90",
+		"Scout",
+		"MAG-7",
+		"Sawed-Off",
+		"PP-Bizon",
+		"MP7",
+		"MP7",
+		"Negev",
+		"Random",
+		"None",
+	};
+	public static string[] SecondaryGuns { get; } =
+	{
+		"USP",
+		"Glock",
+		"Deagle",
+		"P250",
+		"Elite",
+		"Five Seven",
+		"P2000",
+		"Tec-9",
+		"CZ75",
+		"R8",
+		"Random",
+		"None",
+	};
+	public static Dictionary<string, string?> DisabledGuns { get; } = new()
+	{
+		["AWP"] = "2/2",
+		["SG550"] = null,
+		["G3SG1"] = null,
+	};
+	[ConsoleCommand("css_guns")]
+	public void GunsTest(CCSPlayerController player, CommandInfo info)
+	{
+		var primaryMenu = UniversalMenu.CreateMenu(player);
+		primaryMenu.Title = "Primary Weapon";
+
+		foreach (var primaryGun in PrimaryGuns)
+		{
+			var item = primaryMenu.CreateItem();
+			item.Title = primaryGun;
+
+			if (DisabledGuns.TryGetValue(primaryGun, out var disabledInfo))
+			{
+				item.Enabled = false;
+				if (disabledInfo is not null)
+					item.Title = $"{primaryGun} [{disabledInfo}]";
+			}
+
+			if (item.Enabled)
+				item.Selected += PrimaryGun_Selected;
+		}
+
+		primaryMenu.Display();
+	}
+
+	private static void PrimaryGun_Selected(IMenuItem selectedItem)
+	{
+		//PrimaryWeapon = selectedItem.Title; // should use .Context to find the real value
+
+		var secondaryMenu = UniversalMenu.CreateMenu(selectedItem.Menu);
+		secondaryMenu.Title = "Secondary Weapon";
+
+		foreach (var secondaryGun in SecondaryGuns)
+		{
+			var item = secondaryMenu.CreateItem();
+			item.Title = secondaryGun;
+
+			if (DisabledGuns.TryGetValue(secondaryGun, out var disabledInfo))
+			{
+				item.Enabled = false;
+				if (disabledInfo is not null)
+					item.Title = $"{secondaryGun} [{disabledInfo}]";
+			}
+
+			if (item.Enabled)
+				item.Selected += SecondaryGun_Selected;
+		}
+
+		secondaryMenu.Display();
+	}
+
+	private static void SecondaryGun_Selected(IMenuItem selectedItem)
+	{
+		//SecondaryWeapon = selectedItem.Title; // should use .Context to find the real value
+		selectedItem.Menu.Exit();
 	}
 }

@@ -13,7 +13,7 @@ internal sealed class MenuDriver : IMenuAPI
 {
 	private Dictionary<ulong, PlayerMenuState> MenuStates = new();
 	public List<(CBaseEntity ent, CCSPlayerController target)> MenuEntities { get; } = new();
-	public List<PlayerMenuState> ActiveHtmlMenuStates { get; } = new();
+	public List<PlayerMenuState> ActiveMenuStates { get; } = new();
 
 	internal PlayerMenuState GetMenuState(CCSPlayerController player, bool create = false)
 	{
@@ -29,7 +29,8 @@ internal sealed class MenuDriver : IMenuAPI
 	{
 		if (player is null)
 			return;
-		MenuStates.Remove(player.SteamID);
+		MenuStates.Remove(player.SteamID, out var value);
+		value?.Dispose();
 	}
 
 	public IMenu CreateMenu(CCSPlayerController player, CancellationToken ct = default)
