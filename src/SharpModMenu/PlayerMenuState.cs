@@ -41,17 +41,20 @@ internal class PlayerMenuState : IDisposable
 		if (CurrentMenu is null)
 			return;
 
+
 		var itemsStart = CurrentMenu.CurrentPage * Menu.ItemsPerPage;
 		var buttonState = CurrentMenu.GetButtonStates();
 
 		switch (key)
 		{
 			case >= PlayerKey.D1 and <= PlayerKey.D7:
+				HasKeyBinds = fromBind;
 				int index = key - PlayerKey.D1;
 				if (index < CurrentMenu.Items.Count && CurrentMenu.Items[itemsStart + index] is MenuItem { Enabled: true } menuItem)
 					menuItem.RaiseSelected();
 				break;
 			case PlayerKey.D8:
+				HasKeyBinds = fromBind;
 				if (buttonState.ShowPrevButton)
 				{
 					CurrentMenu.CurrentPage--;
@@ -67,6 +70,7 @@ internal class PlayerMenuState : IDisposable
 				}
 				break;
 			case PlayerKey.D9:
+				HasKeyBinds = fromBind;
 				if (buttonState.ShowNextButton)
 				{
 					CurrentMenu.CurrentPage++;
@@ -75,6 +79,7 @@ internal class PlayerMenuState : IDisposable
 				}
 				break;
 			case PlayerKey.D0:
+				HasKeyBinds = fromBind;
 				if (buttonState.ShowExitButton)
 					(CurrentMenu as IMenu).Exit();
 				break;
@@ -229,7 +234,7 @@ internal class PlayerMenuState : IDisposable
 
 		Driver.MenuEntities.Add((ent, Player));
 
-		ent.MessageText = text;
+		ent.MessageText = text; // limit of 512 chars
 		ent.Enabled = true;
 		ent.FontName = fontName;
 		ent.FontSize = fontSize;
@@ -243,6 +248,10 @@ internal class PlayerMenuState : IDisposable
 		ent.DrawBackground = drawBackground;
 		ent.BackgroundBorderHeight = 0.1f;
 		ent.BackgroundBorderWidth = 0.1f;
+		ent.BackgroundWorldToUV = 0.05f;
+		//ent.ForceRecreateNextTick = true; //  m_bForceRecreateNextUpdate  
+		//ent.BackgroundMaterialName = ""; //  m_BackgroundMaterialName
+		//ent.OwnerEntity = CBaseViewModel;
 		ent.DepthOffset = depthOffset;
 		ent.DispatchSpawn();
 		return ent;
@@ -349,8 +358,8 @@ internal class PlayerMenuState : IDisposable
 		var position = eyeAngles.Position + eyeAngles.Forward * 7.0f + eyeAngles.Right * MenuPosition.X + eyeAngles.Up * MenuPosition.Y;
 		var angle = new Vector3()
 		{
-			Y = eyeAngles.Angle.Y + 270.0f,
-			Z = 90.0f - eyeAngles.Angle.X,
+			Y = eyeAngles.Angle.Y + 270.0f, // -90?
+			Z = 90.0f - eyeAngles.Angle.X, // +90?
 			X = 0.0f
 		};
 
