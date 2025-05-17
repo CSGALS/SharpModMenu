@@ -12,9 +12,5 @@ Many thanks to [@T3Marius's CS2ScreenMenuAPI](https://github.com/T3Marius/CS2Scr
 
 TODO:
 - Sounds
-- Disable weapon switching
-- WASD
- - Hook CreateMove or similar to stop the player
-- Automatically detect when to enable WASD features
 
 -->
