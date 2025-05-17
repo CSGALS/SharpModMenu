@@ -344,7 +344,17 @@ internal class PlayerMenuState : IDisposable
 			if (CurrentMenu is not null && !CurrentMenu.IsDirty)
 				return true;
 		}
-		WasPressingForward = WasPressingBack = WasPressingLeft = WasPressingRight = WasPressingReload = WasPressingUse = WasPressingTab = true;
+		else
+		{
+			// setting these here inhibit existing player inputs from being registered, requiring they at least be released first
+			WasPressingForward = true;
+			WasPressingBack = true;
+			WasPressingLeft = true;
+			WasPressingRight = true;
+			WasPressingReload = true;
+			WasPressingUse = true;
+			WasPressingTab = true;
+		}
 
 		if (CurrentMenu is null)
 		{
@@ -468,9 +478,10 @@ internal class PlayerMenuState : IDisposable
 
 			var color = style switch
 			{
-				{ Highlight: true } => "#F74843",
-				{ Foreground: true } => "#E28B12",
-				_ => "#E7CCA5",
+				{ Foreground: true, Highlight: true} => "#EFCE21",
+				{ Foreground: true, Highlight: false } => "#E28B12",
+				{ Foreground: false, Highlight: true } => "#EFE472",
+				{ Foreground: false, Highlight: false } => "#E7CCA5",
 			};
 
 			var selectionPrefix = selectIndex.HasValue ? $"/{selectIndex.Value} " : string.Empty;

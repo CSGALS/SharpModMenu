@@ -2,6 +2,8 @@
 
 A native CSSUniversalMenuAPI implementation, mirroring the behavior of SourceMod radio menus for CounterStrikeSharp.
 
+https://www.youtube.com/watch?v=Be7qop6pVpI
+
 When number keys are bound with the following snippet, automatically detected and the menu will look like it used to in CSS and CS:GO:
 
 ```
@@ -27,7 +29,10 @@ When these binds are not present, the player is prevented from moving, and the f
 
 ![](./docs/GunsWasdMenuCropped.png)
 
-https://www.youtube.com/watch?v=Be7qop6pVpI
+In the event that there is no spectator on which to create the predicted view model, the system will further fall back to
+a CenterHtmlMenu for that free roaming player.
+
+![](./docs/CenterHtmlFallbackCropped.png)
 
 Many thanks to [@T3Marius's CS2ScreenMenuAPI](https://github.com/T3Marius/CS2ScreenMenuAPI) for acting as reference when it comes to using the point_worldtext entity.
 
