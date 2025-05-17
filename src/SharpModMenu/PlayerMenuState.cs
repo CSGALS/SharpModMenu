@@ -216,14 +216,14 @@ internal class PlayerMenuState : IDisposable
 		ForegroundText = BackgroundText = Background = null;
 	}
 
-	private static readonly Color HighlightTextColor = Color.FromArgb(247, 72, 67);
+	private static readonly Color HighlightTextColor = Color.FromArgb(127, 255, 255, 64);
 	private static readonly Color ForegroundTextColor = Color.FromArgb(229, 150, 32); // 245, 177, 103 with a white bg, maybe 240, 160, 30 at 95% opacity?
 	private static readonly Color BackgroundTextColor = Color.FromArgb(234, 209, 175);
 
 	private void CreateEntities()
 	{
-		HighlightText = CreateWorldText(textColor: HighlightTextColor, false, -0.000f);
-		ForegroundText = CreateWorldText(textColor: ForegroundTextColor, false, -0.000f);
+		HighlightText = CreateWorldText(textColor: HighlightTextColor, false, 0.001f);
+		ForegroundText = CreateWorldText(textColor: ForegroundTextColor, false, 0.000f);
 		BackgroundText = CreateWorldText(textColor: BackgroundTextColor, false, -0.001f);
 		Background = CreateWorldText(textColor: Color.FromArgb(200, 127, 127, 127), true, -0.002f);
 	}
@@ -395,19 +395,21 @@ internal class PlayerMenuState : IDisposable
 				BackgroundSb.AppendLine();
 			}
 
-			StringBuilder? sb = null;
+			StringBuilder sb = style.Foreground ? ForegroundTextSb : BackgroundTextSb;
 
-			if (style.Highlight)
-				HighlightTextSb.Append("[　]");
-
-			sb = style.Foreground ? ForegroundTextSb : BackgroundTextSb;
 			if (selectionIndex.HasValue)
 			{
 				sb.Append($"{selectionIndex}. ");
 				BackgroundSb.Append($"{selectionIndex}. ");
+
+				if (style.Highlight)
+					HighlightTextSb.Append($"{selectionIndex}. ");
 			}
 			sb.Append(text);
 			BackgroundSb.Append(text);
+
+			if (style.Highlight)
+				HighlightTextSb.Append(text);
 
 			linesWrote++;
 		}
@@ -415,7 +417,6 @@ internal class PlayerMenuState : IDisposable
 		BuildMenuStrings(CurrentMenu, writeLine);
 
 		var position = eyeAngles.Position + eyeAngles.Forward * 7.0f + eyeAngles.Right * MenuPosition.X + eyeAngles.Up * MenuPosition.Y;
-		var highlightPosition = position + eyeAngles.Right * -0.055f;
 		var angle = new Vector3()
 		{
 			Y = eyeAngles.Angle.Y + 270.0f, // -90?
@@ -437,7 +438,7 @@ internal class PlayerMenuState : IDisposable
 			DestroyEntities();
 			CreateEntities();
 		}
-		UpdateEntity(HighlightText!, predictedViewmodel, HighlightTextSb.ToString(), highlightPosition, angle);
+		UpdateEntity(HighlightText!, predictedViewmodel, HighlightTextSb.ToString(), position, angle);
 		UpdateEntity(ForegroundText!, predictedViewmodel, ForegroundTextSb.ToString(), position, angle);
 		UpdateEntity(BackgroundText!, predictedViewmodel, BackgroundTextSb.ToString(), position, angle);
 		UpdateEntity(Background!, predictedViewmodel, BackgroundSb.ToString(), position, angle);
