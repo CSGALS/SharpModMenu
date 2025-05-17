@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -445,6 +446,56 @@ public sealed class SharpModMenuPlugin : BasePlugin
 		if (menuState is null)
 			return;
 		menuState.HandleInput(PlayerKey.SelectItem0, info.CallingContext == CommandCallingContext.Console);
+	}
+
+	[ConsoleCommand("css_sharpmodmenu_pos_x")]
+	public void SharpModMenuPosX(CCSPlayerController player, CommandInfo info)
+	{
+		if (player is null || !player.IsValid)
+			return;
+		var menuState = DriverInstance?.GetMenuState(player, create: true);
+		if (menuState is null)
+			return;
+
+		if (info.ArgCount != 2)
+		{
+			info.ReplyToCommand($"css_sharpmodmenu_pos_x: Invalid number of arguments provided");
+			return;
+		}
+
+		var valStr = info.ArgByIndex(1);
+		if (!float.TryParse(valStr, CultureInfo.InvariantCulture, out var val))
+		{
+			info.ReplyToCommand($"css_sharpmodmenu_pos_x: Failed to parse argument as float: {valStr}");
+			return;
+		}
+
+		menuState.MenuPosition = menuState.MenuPosition with { X = val };
+	}
+
+	[ConsoleCommand("css_sharpmodmenu_pos_y")]
+	public void SharpModMenuPosY(CCSPlayerController player, CommandInfo info)
+	{
+		if (player is null || !player.IsValid)
+			return;
+		var menuState = DriverInstance?.GetMenuState(player, create: true);
+		if (menuState is null)
+			return;
+
+		if (info.ArgCount != 2)
+		{
+			info.ReplyToCommand($"css_sharpmodmenu_pos_y: Invalid number of arguments provided");
+			return;
+		}
+
+		var valStr = info.ArgByIndex(1);
+		if (!float.TryParse(valStr, CultureInfo.InvariantCulture, out var val))
+		{
+			info.ReplyToCommand($"css_sharpmodmenu_pos_y: failed to parse argument as float: {valStr}");
+			return;
+		}
+
+		menuState.MenuPosition = menuState.MenuPosition with { Y = val };
 	}
 
 

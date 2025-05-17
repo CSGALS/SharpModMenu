@@ -327,7 +327,20 @@ internal class PlayerMenuState : IDisposable
 			Utilities.SetStateChanged(ent, "CPointWorldText", "m_messageText");
 	}
 
-	private readonly Vector MenuPosition = new(-6.9f, 0.0f);
+	private Vector2 _MenuPosition = new(-6.55f, 0.0f);
+	public Vector2 MenuPosition
+	{
+		get => _MenuPosition;
+		set
+		{
+			_MenuPosition = value;
+			if (CurrentMenu is not null)
+			{
+				CurrentMenu.IsDirty = true;
+				Refresh(false);
+			}
+		}
+	}
 
 	private Menu? LastPresented { get; set; }
 	private readonly StringBuilder HighlightTextSb = new();
