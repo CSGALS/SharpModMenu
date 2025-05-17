@@ -33,6 +33,73 @@ internal class Menu : IMenu, IMenuPriorityExtension, INavigateBackMenuExtension
 	public Menu? Parent => Parents.Count > 0 ? Parents[^1] : null;
 	public DateTime OpenedAt { get; set; }
 
+	public int SelectionIndex { get; set; }
+
+	public int PrevSelectionIndex
+	{
+		get
+		{
+			var itemsVisible = Math.Min(ItemsPerPage, Items.Count - (CurrentPage * ItemsPerPage));
+			var buttonStates = GetButtonStates();
+
+			if (SelectionIndex > 8 && buttonStates.ShowNextButton)
+				return 8;
+			if (SelectionIndex > 7 && (buttonStates.ShowBackButton || buttonStates.ShowPrevButton))
+				return 7;
+			if (SelectionIndex > itemsVisible - 1)
+				return itemsVisible - 1;
+			if (SelectionIndex > 0)
+				return SelectionIndex - 1;
+
+			if (SelectionIndex == 0)
+			{
+				if (buttonStates.ShowExitButton)
+					return 9;
+				if (buttonStates.ShowNextButton)
+					return 8;
+				if (buttonStates.ShowBackButton || buttonStates.ShowPrevButton)
+					return 7;
+				if (itemsVisible > 0)
+					return itemsVisible - 1;
+				return SelectionIndex;
+			}
+
+			return SelectionIndex;
+		}
+	}
+	public int NextSelectionIndex
+	{
+		get
+		{
+			var itemsVisible = Math.Min(ItemsPerPage, Items.Count - (CurrentPage * ItemsPerPage));
+			var buttonStates = GetButtonStates();
+
+			if (SelectionIndex < itemsVisible - 1)
+				return SelectionIndex + 1;
+			if (SelectionIndex < 7 && (buttonStates.ShowBackButton || buttonStates.ShowPrevButton))
+				return 7;
+			if (SelectionIndex < 8 && buttonStates.ShowNextButton)
+				return 8;
+			if (SelectionIndex < 9 && buttonStates.ShowExitButton)
+				return 9;
+
+			if (SelectionIndex == 9)
+			{
+				if (itemsVisible > 0)
+					return 0;
+				if (buttonStates.ShowBackButton || buttonStates.ShowPrevButton)
+					return 7;
+				if (buttonStates.ShowNextButton)
+					return 8;
+				if (buttonStates.ShowExitButton)
+					return 9;
+				return SelectionIndex;
+			}
+
+			return SelectionIndex;
+		}
+	}
+
 	internal MenuButtonState GetButtonStates()
 	{
 		var ret = new MenuButtonState();

@@ -1,7 +1,13 @@
-﻿namespace SharpModMenu;
+namespace SharpModMenu;
 
 public enum PlayerKey
 {
-	Forward, Left, Back, Right, Reload, Inspect, Walk, Crouch, Jump,
-	D1, D2, D3, D4, D5, D6, D7, D8, D9, D0,
+	Up,
+	Down,
+	Left,
+	Right,
+	ToggleFocus,
+	Select,
+	Close,
+	SelectItem1, SelectItem2, SelectItem3, SelectItem4, SelectItem5, SelectItem6, SelectItem7, SelectItem8, SelectItem9, SelectItem0,
 }

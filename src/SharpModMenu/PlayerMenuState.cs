@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.Eventing.Reader;
 using System.Drawing;
 using System.Numerics;
 using System.Text;
@@ -35,26 +36,37 @@ internal class PlayerMenuState : IDisposable
 			Refresh(sortPriorities: false);
 		}
 	}
+	public bool CanUseKeybinds { get; set; }
+	public bool IsUsingKeybinds => HasKeyBinds && CanUseKeybinds;
+
+	public bool WasPressingForward { get; set; }
+	public bool WasPressingBack { get; set; }
+	public bool WasPressingLeft { get; set; }
+	public bool WasPressingRight { get; set; }
+	public bool WasPressingUse { get; set; }
+	public bool WasPressingReload { get; set; }
+	public bool WasPressingTab { get; set; }
 
 	public void HandleInput(PlayerKey key, bool fromBind)
 	{
+		if (key is >= PlayerKey.SelectItem1 and <= PlayerKey.SelectItem0 && fromBind)
+			HasKeyBinds = true;
+
 		if (CurrentMenu is null)
 			return;
-
 
 		var itemsStart = CurrentMenu.CurrentPage * Menu.ItemsPerPage;
 		var buttonState = CurrentMenu.GetButtonStates();
 
 		switch (key)
 		{
-			case >= PlayerKey.D1 and <= PlayerKey.D7:
-				HasKeyBinds = fromBind;
-				int index = key - PlayerKey.D1;
-				if (index < CurrentMenu.Items.Count && CurrentMenu.Items[itemsStart + index] is MenuItem { Enabled: true } menuItem)
+			case >= PlayerKey.SelectItem1 and <= PlayerKey.SelectItem7:
+				int index = key - PlayerKey.SelectItem1;
+				if ((itemsStart + index) < CurrentMenu.Items.Count && CurrentMenu.Items[itemsStart + index] is MenuItem { Enabled: true } menuItem)
 					menuItem.RaiseSelected();
 				break;
-			case PlayerKey.D8:
-				HasKeyBinds = fromBind;
+			case PlayerKey.SelectItem8:
+			case PlayerKey.Left:
 				if (buttonState.ShowPrevButton)
 				{
 					CurrentMenu.CurrentPage--;
@@ -69,8 +81,8 @@ internal class PlayerMenuState : IDisposable
 						CurrentMenu.Close();
 				}
 				break;
-			case PlayerKey.D9:
-				HasKeyBinds = fromBind;
+			case PlayerKey.SelectItem9:
+			case PlayerKey.Right:
 				if (buttonState.ShowNextButton)
 				{
 					CurrentMenu.CurrentPage++;
@@ -78,10 +90,35 @@ internal class PlayerMenuState : IDisposable
 					Refresh(sortPriorities: false);
 				}
 				break;
-			case PlayerKey.D0:
-				HasKeyBinds = fromBind;
+			case PlayerKey.SelectItem0:
+			case PlayerKey.Close:
 				if (buttonState.ShowExitButton)
 					(CurrentMenu as IMenu).Exit();
+				break;
+			case PlayerKey.Up:
+				CurrentMenu.SelectionIndex = CurrentMenu.PrevSelectionIndex;
+				CurrentMenu.IsDirty = true;
+				Refresh(sortPriorities: false);
+				break;
+			case PlayerKey.Down:
+				CurrentMenu.SelectionIndex = CurrentMenu.NextSelectionIndex;
+				CurrentMenu.IsDirty = true;
+				Refresh(sortPriorities: false);
+				break;
+			case PlayerKey.Select:
+				var selectedIndex = CurrentMenu.SelectionIndex;
+				var hoveringItem =
+					selectedIndex < Menu.ItemsPerPage &&
+					(itemsStart + selectedIndex) < CurrentMenu.Items.Count;
+
+				if (hoveringItem && CurrentMenu.Items[itemsStart + selectedIndex] is MenuItem { Enabled: true } selectedMenuItem)
+					selectedMenuItem.RaiseSelected();
+				else if (selectedIndex == 7)
+					goto case PlayerKey.Left;
+				else if (selectedIndex == 8)
+					goto case PlayerKey.Right;
+				else if (selectedIndex == 9)
+					goto case PlayerKey.Close;
 				break;
 			default:
 				break;
@@ -156,12 +193,16 @@ internal class PlayerMenuState : IDisposable
 		DestroyEntities();
 	}
 
+	private CPointWorldText? HighlightText { get; set; }
 	private CPointWorldText? ForegroundText { get; set; }
 	private CPointWorldText? BackgroundText { get; set; }
 	private CPointWorldText? Background { get; set; }
 	private void DestroyEntities()
 	{
 		Driver.MenuEntities.RemoveAll(x => x.target == Player);
+
+		if (HighlightText is not null && HighlightText.IsValid)
+			HighlightText?.Remove();
 
 		if (ForegroundText is not null && ForegroundText.IsValid)
 			ForegroundText?.Remove();
@@ -175,11 +216,13 @@ internal class PlayerMenuState : IDisposable
 		ForegroundText = BackgroundText = Background = null;
 	}
 
+	private static readonly Color HighlightTextColor = Color.FromArgb(247, 72, 67);
 	private static readonly Color ForegroundTextColor = Color.FromArgb(229, 150, 32); // 245, 177, 103 with a white bg, maybe 240, 160, 30 at 95% opacity?
 	private static readonly Color BackgroundTextColor = Color.FromArgb(234, 209, 175);
 
 	private void CreateEntities()
 	{
+		HighlightText = CreateWorldText(textColor: HighlightTextColor, false, -0.000f);
 		ForegroundText = CreateWorldText(textColor: ForegroundTextColor, false, -0.000f);
 		BackgroundText = CreateWorldText(textColor: BackgroundTextColor, false, -0.001f);
 		Background = CreateWorldText(textColor: Color.FromArgb(200, 127, 127, 127), true, -0.002f);
@@ -289,6 +332,7 @@ internal class PlayerMenuState : IDisposable
 	private readonly Vector MenuPosition = new(-6.9f, 0.0f);
 
 	private Menu? LastPresented { get; set; }
+	private readonly StringBuilder HighlightTextSb = new();
 	private readonly StringBuilder ForegroundTextSb = new();
 	private readonly StringBuilder BackgroundTextSb = new();
 	private readonly StringBuilder BackgroundSb = new();
@@ -302,6 +346,7 @@ internal class PlayerMenuState : IDisposable
 			if (CurrentMenu is not null && !CurrentMenu.IsDirty)
 				return true;
 		}
+		WasPressingForward = WasPressingBack = WasPressingLeft = WasPressingRight = WasPressingReload = WasPressingUse = WasPressingTab = true;
 
 		if (CurrentMenu is null)
 		{
@@ -316,7 +361,11 @@ internal class PlayerMenuState : IDisposable
 
 		var observerInfo = Player.GetObserverInfo();
 		if (observerInfo.Mode != ObserverMode.FirstPerson)
+		{
+			CanUseKeybinds = false;
 			return false;
+		}
+		CanUseKeybinds = observerInfo.Mode == ObserverMode.FirstPerson && observerInfo.Observing?.Index == Player.Pawn.Index;
 
 		var maybeEyeAngles = observerInfo.GetEyeAngles();
 		if (!maybeEyeAngles.HasValue)
@@ -327,28 +376,38 @@ internal class PlayerMenuState : IDisposable
 		if (predictedViewmodel is null)
 			return false;
 
+		HighlightTextSb.Clear();
 		ForegroundTextSb.Clear();
 		BackgroundTextSb.Clear();
 		BackgroundSb.Clear();
 
 		bool firstLine = true;
 		int linesWrote = 0;
-		void writeLine(string text, bool background)
+		void writeLine(string text, TextStyling style, int? selectionIndex)
 		{
 			if (firstLine)
 				firstLine = false;
 			else
 			{
+				HighlightTextSb.AppendLine();
 				ForegroundTextSb.AppendLine();
 				BackgroundTextSb.AppendLine();
 				BackgroundSb.AppendLine();
 			}
 
+			StringBuilder? sb = null;
+
+			if (style.Highlight)
+				HighlightTextSb.Append("[　]");
+
+			sb = style.Foreground ? ForegroundTextSb : BackgroundTextSb;
+			if (selectionIndex.HasValue)
+			{
+				sb.Append($"{selectionIndex}. ");
+				BackgroundSb.Append($"{selectionIndex}. ");
+			}
+			sb.Append(text);
 			BackgroundSb.Append(text);
-			if (background)
-				BackgroundTextSb.Append(text);
-			else
-				ForegroundTextSb.Append(text);
 
 			linesWrote++;
 		}
@@ -356,6 +415,7 @@ internal class PlayerMenuState : IDisposable
 		BuildMenuStrings(CurrentMenu, writeLine);
 
 		var position = eyeAngles.Position + eyeAngles.Forward * 7.0f + eyeAngles.Right * MenuPosition.X + eyeAngles.Up * MenuPosition.Y;
+		var highlightPosition = position + eyeAngles.Right * -0.055f;
 		var angle = new Vector3()
 		{
 			Y = eyeAngles.Angle.Y + 270.0f, // -90?
@@ -368,6 +428,7 @@ internal class PlayerMenuState : IDisposable
 		MenuCurrentViewmodel = predictedViewmodel;
 
 		bool allValid =
+			(HighlightText?.IsValid ?? false) &&
 			(ForegroundText?.IsValid ?? false) &&
 			(BackgroundText?.IsValid ?? false) &&
 			(Background?.IsValid ?? false);
@@ -376,6 +437,7 @@ internal class PlayerMenuState : IDisposable
 			DestroyEntities();
 			CreateEntities();
 		}
+		UpdateEntity(HighlightText!, predictedViewmodel, HighlightTextSb.ToString(), highlightPosition, angle);
 		UpdateEntity(ForegroundText!, predictedViewmodel, ForegroundTextSb.ToString(), position, angle);
 		UpdateEntity(BackgroundText!, predictedViewmodel, BackgroundTextSb.ToString(), position, angle);
 		UpdateEntity(Background!, predictedViewmodel, BackgroundSb.ToString(), position, angle);
@@ -384,6 +446,7 @@ internal class PlayerMenuState : IDisposable
 
 	private readonly StringBuilder HtmlTextSb = new();
 	public string? HtmlContent { get; set; } = null;
+
 	public void DrawActiveMenuHtml()
 	{
 		if (CurrentMenu is null)
@@ -394,7 +457,7 @@ internal class PlayerMenuState : IDisposable
 
 		bool firstLine = true;
 		int linesWrote = 0;
-		void writeLine(string text, bool background)
+		void writeLine(string text, TextStyling style, int? selectIndex)
 		{
 			if (string.IsNullOrEmpty(text))
 				return;
@@ -404,8 +467,15 @@ internal class PlayerMenuState : IDisposable
 			else
 				HtmlTextSb.Append("<br>");
 
-			var color = background ? "#E7CCA5" : "#E28B12";
-			HtmlTextSb.Append($"<font color='{color}'>{text}</font>");
+			var color = style switch
+			{
+				{ Highlight: true } => "#F74843",
+				{ Foreground: true } => "#E28B12",
+				_ => "#E7CCA5",
+			};
+
+			var selectionPrefix = selectIndex.HasValue ? $"/{selectIndex.Value} " : string.Empty;
+			HtmlTextSb.Append($"<font color='{color}'>{selectionPrefix}{text}</font>");
 			linesWrote++;
 		}
 
@@ -417,9 +487,15 @@ internal class PlayerMenuState : IDisposable
 		HtmlContent = HtmlTextSb.ToString();
 	}
 
-	private void BuildMenuStrings(Menu currentMenu, Action<string, bool> writeLine)
+	private struct TextStyling
 	{
-		writeLine(currentMenu.Title, true);
+		public bool Foreground { get; set; }
+		public bool Highlight { get; set; }
+	}
+
+	private void BuildMenuStrings(Menu currentMenu, Action<string, TextStyling, int?> writeLine)
+	{
+		writeLine(currentMenu.Title, default, null);
 
 		var itemsStart = currentMenu.CurrentPage * Menu.ItemsPerPage;
 		var itemsInPage = Math.Min(currentMenu.Items.Count, itemsStart + Menu.ItemsPerPage) - itemsStart;
@@ -427,9 +503,16 @@ internal class PlayerMenuState : IDisposable
 		for (int i = 0; i < itemsInPage; i++)
 		{
 			var item = currentMenu.Items[itemsStart + i];
-			writeLine($"{i + 1}. {item.Title}", !item.Enabled);
+
+			var textStyle = new TextStyling
+			{
+				Highlight = !IsUsingKeybinds && i == currentMenu.SelectionIndex,
+				Foreground = item.Enabled
+			};
+
+			writeLine(item.Title, textStyle, i + 1);
 			if (item.Subtitle is not null)
-				writeLine($"  {item.Subtitle}", true);
+				writeLine($"  {item.Subtitle}", default, null);
 		}
 
 		var btnStates = currentMenu.GetButtonStates();
@@ -439,25 +522,44 @@ internal class PlayerMenuState : IDisposable
 			int blankLines = maxItemsPerPage - itemsInPage + 1;
 
 			for (int i = 0; i < blankLines; i++)
-				writeLine(string.Empty, false);
+				writeLine(string.Empty, default, null);
 
 			if (btnStates.ShowNavigation)
 			{
-				if (btnStates.ShowPrevButton)
-					writeLine("8. Previous", false);
-				else if (btnStates.ShowBackButton)
-					writeLine("8. Back", false);
-				else
-					writeLine(string.Empty, false);
+				var backPrevStyle = new TextStyling()
+				{
+					Foreground = true,
+					Highlight = !IsUsingKeybinds && currentMenu.SelectionIndex == 7,
+				};
 
-				if (btnStates.ShowNextButton)
-					writeLine("9. Next", false);
+				if (btnStates.ShowPrevButton)
+					writeLine("Previous", backPrevStyle, 8);
+				else if (btnStates.ShowBackButton)
+					writeLine("Back", backPrevStyle, 8);
 				else
-					writeLine(string.Empty, false);
+					writeLine(string.Empty, backPrevStyle, null);
+
+				var nextStyle = new TextStyling()
+				{
+					Foreground = true,
+					Highlight = !IsUsingKeybinds && currentMenu.SelectionIndex == 8,
+				};
+				if (btnStates.ShowNextButton)
+					writeLine("Next", nextStyle, 9);
+				else
+					writeLine(string.Empty, nextStyle, null);
 			}
 
 			if (btnStates.ShowExitButton)
-				writeLine("0. Exit", true);
+			{
+				var exitStyle = new TextStyling()
+				{
+					Foreground = false,
+					Highlight = !IsUsingKeybinds && currentMenu.SelectionIndex == 9,
+				};
+				bool highlightBackPrev = !IsUsingKeybinds && currentMenu.SelectionIndex == 9;
+				writeLine("Exit", exitStyle, 0);
+			}
 		}
 	}
 
