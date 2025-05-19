@@ -32,7 +32,7 @@ internal static class PlayerExtensions
 {
 	public static ObserverInfo GetObserverInfo(this CCSPlayerController player)
 	{
-		if (player.Pawn.Value is not CBasePlayerPawn pawn)
+		if (!player.Pawn.IsValid || player.Pawn.Value is not CBasePlayerPawn pawn)
 			return new() { Mode = ObserverMode.Roaming, Observing = null };
 
 		if (pawn.ObserverServices is not CPlayer_ObserverServices observerServices)

@@ -195,6 +195,7 @@ internal class PlayerMenuState : IDisposable
 	public void Dispose()
 	{
 		DestroyEntities();
+		MenuActive = false; // force the removal of this menu from the active menus
 	}
 
 	private CPointWorldText? HighlightText { get; set; }
