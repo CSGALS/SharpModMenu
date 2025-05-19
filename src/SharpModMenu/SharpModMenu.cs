@@ -362,6 +362,32 @@ public sealed class SharpModMenuPlugin : BasePlugin
 		return HookResult.Continue;
 	}
 
+	[ConsoleCommand("menuselect")]
+	public void MenuSelect(CCSPlayerController player, CommandInfo info)
+	{
+		if (player is null || !player.IsValid)
+			return;
+		var menuState = DriverInstance?.GetMenuState(player, create: true);
+		if (menuState is null)
+			return;
+
+		if (info.ArgCount < 2)
+		{
+			info.ReplyToCommand($"menuselect: Invalid number of arguments provided");
+			return;
+		}
+
+		var valStr = info.ArgByIndex(1);
+		if (!int.TryParse(valStr, CultureInfo.InvariantCulture, out var val))
+		{
+			info.ReplyToCommand($"menuselect: Failed to parse argument as int: {valStr}");
+			return;
+		}
+
+		var key = (PlayerKey)((int)PlayerKey.SelectItem1 + (val - 1));
+		menuState.HandleInput(key, info.CallingContext == CommandCallingContext.Console);
+	}
+
 	[ConsoleCommand("css_1")]
 	public void Css1(CCSPlayerController player, CommandInfo info)
 	{

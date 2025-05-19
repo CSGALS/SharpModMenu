@@ -7,7 +7,7 @@ https://www.youtube.com/watch?v=Be7qop6pVpI
 When number keys are bound with the following snippet, automatically detected and the menu will look like it used to in CSS and CS:GO:
 
 ```
-bind 1 "slot1;css_1"
+bind 1 "slot1;css_1" // menuselect 1 is also supported
 bind 2 "slot2;css_2"
 ...
 bind 9 "slot9;css_9"
