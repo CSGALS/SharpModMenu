@@ -45,6 +45,9 @@ internal class PlayerMenuState : IDisposable
 	public bool WasPressingReload { get; set; }
 	public bool WasPressingTab { get; set; }
 
+	public int ClientTick { get; set; }
+	public int? InhibitWeaponSelection { get; set; }
+
 	public void HandleInput(PlayerKey key, bool fromBind)
 	{
 		if (key is >= PlayerKey.SelectItem1 and <= PlayerKey.SelectItem0 && fromBind)
@@ -52,6 +55,9 @@ internal class PlayerMenuState : IDisposable
 
 		if (CurrentMenu is null)
 			return;
+
+		if (key is >= PlayerKey.SelectItem1 and <= PlayerKey.SelectItem0 && fromBind)
+			InhibitWeaponSelection = ClientTick + 1;
 
 		var itemsStart = CurrentMenu.CurrentPage * Menu.ItemsPerPage;
 		var buttonState = CurrentMenu.GetButtonStates();
