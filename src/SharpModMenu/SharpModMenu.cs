@@ -15,9 +15,7 @@ using CounterStrikeSharp.API.Modules.Memory.DynamicFunctions;
 using CSSUniversalMenuAPI;
 using static CounterStrikeSharp.API.Core.Listeners;
 
-
 namespace SharpModMenu;
-
 
 [MinimumApiVersion(314)]
 public sealed class SharpModMenuPlugin : BasePlugin
@@ -88,45 +86,63 @@ public sealed class SharpModMenuPlugin : BasePlugin
 	[GameEventHandler(HookMode.Pre)]
 	public HookResult OnPlayerDisconnect(EventPlayerDisconnect e, GameEventInfo info)
 	{
+		if (DriverInstance?.ActiveMenuStates is null)
+			return HookResult.Continue;
+
 		DriverInstance?.PlayerDisconnected(e.Userid);
 		return HookResult.Continue;
 	}
 
 	[GameEventHandler(HookMode.Post)]
-	public HookResult OnPlayerDisconnect(EventGameStart e, GameEventInfo info)
+	public HookResult OnGameStart(EventGameStart e, GameEventInfo info)
 	{
+		if (DriverInstance?.ActiveMenuStates is null)
+			return HookResult.Continue;
+
 		foreach (var state in DriverInstance!.ActiveMenuStates)
 			state.ForceRefresh = true;
 		return HookResult.Continue;
 	}
 
 	[GameEventHandler(HookMode.Post)]
-	public HookResult OnPlayerDisconnect(EventRoundStart e, GameEventInfo info)
+	public HookResult OnRoundStart(EventRoundStart e, GameEventInfo info)
 	{
+		if (DriverInstance?.ActiveMenuStates is null)
+			return HookResult.Continue;
+
 		foreach (var state in DriverInstance!.ActiveMenuStates)
 			state.ForceRefresh = true;
 		return HookResult.Continue;
 	}
 
 	[GameEventHandler(HookMode.Post)]
-	public HookResult OnPlayerDisconnect(EventBeginNewMatch e, GameEventInfo info)
+	public HookResult OnBeginNewMatch(EventBeginNewMatch e, GameEventInfo info)
 	{
+		if (DriverInstance?.ActiveMenuStates is null)
+			return HookResult.Continue;
+
 		foreach (var state in DriverInstance!.ActiveMenuStates)
 			state.ForceRefresh = true;
 		return HookResult.Continue;
 	}
 
 	[GameEventHandler(HookMode.Post)]
-	public HookResult OnPlayerDisconnect(EventGameInit e, GameEventInfo info)
+	public HookResult OnGameInit(EventGameInit e, GameEventInfo info)
 	{
+		if (DriverInstance?.ActiveMenuStates is null)
+			return HookResult.Continue;
+
 		foreach (var state in DriverInstance!.ActiveMenuStates)
 			state.ForceRefresh = true;
 		return HookResult.Continue;
 	}
 
 	[GameEventHandler(HookMode.Post)]
-	public HookResult OnPlayerDisconnect(EventPlayerSpawned e, GameEventInfo info)
+	public HookResult OnPlayerSpawned(EventPlayerSpawned e, GameEventInfo info)
 	{
+		if (DriverInstance?.ActiveMenuStates is null)
+			return HookResult.Continue;
+
 		foreach (var state in DriverInstance!.ActiveMenuStates)
 			if (e.Userid == state.Player)
 				state.ForceRefresh = true;
@@ -255,12 +271,19 @@ public sealed class SharpModMenuPlugin : BasePlugin
 		var pressingTab = false;
 		var pressingReload = false;
 
+		int? inhibitWeaponSelectionTick = menuState.InhibitWeaponSelection;
+		menuState.InhibitWeaponSelection = null;
+		bool inhibitWeaponSelect = false;
+
 		for (ulong i = 0; i < (ulong)cmdsCount; i++)
 		{
 			var cmd = (CUserCmdPB*)((ulong)cmdsPtr + i * CUserCmdPB.Size);
 			
 			if ((nint)cmd->Base == nint.Zero)
 				continue;
+
+			inhibitWeaponSelect |= inhibitWeaponSelectionTick.HasValue && inhibitWeaponSelectionTick.Value <= cmd->Base->ClientTick;
+			menuState.ClientTick = cmd->Base->ClientTick;
 
 			var cmdPtr = (nint)cmd->Base;
 			var span = new Span<byte>(cmd->Base, 0x82);
@@ -283,7 +306,8 @@ public sealed class SharpModMenuPlugin : BasePlugin
 
 			if (menuState.IsUsingKeybinds)
 			{
-				cmd->Base->WeaponSelect = 0;
+				if (inhibitWeaponSelect)
+					cmd->Base->WeaponSelect = 0;
 			}
 			else
 			{
