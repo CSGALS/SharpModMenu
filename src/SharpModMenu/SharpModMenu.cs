@@ -388,114 +388,32 @@ public sealed class SharpModMenuPlugin : BasePlugin
 		menuState.HandleInput(key, info.CallingContext == CommandCallingContext.Console);
 	}
 
-	[ConsoleCommand("css_1")]
-	public void Css1(CCSPlayerController player, CommandInfo info)
+	[ConsoleCommand("css_1"), ConsoleCommand("css_2"), ConsoleCommand("css_3"), ConsoleCommand("css_4"), ConsoleCommand("css_5")]
+	[ConsoleCommand("css_6"), ConsoleCommand("css_7"), ConsoleCommand("css_8"), ConsoleCommand("css_9"), ConsoleCommand("css_0")]
+	public void CssIndex(CCSPlayerController? player, CommandInfo info)
 	{
 		if (player is null || !player.IsValid)
 			return;
 		var menuState = DriverInstance?.GetMenuState(player, create: true);
 		if (menuState is null)
 			return;
-		menuState.HandleInput(PlayerKey.SelectItem1, info.CallingContext == CommandCallingContext.Console);
-	}
 
-	[ConsoleCommand("css_2")]
-	public void Css2(CCSPlayerController player, CommandInfo info)
-	{
-		if (player is null || !player.IsValid)
-			return;
-		var menuState = DriverInstance?.GetMenuState(player, create: true);
-		if (menuState is null)
-			return;
-		menuState.HandleInput(PlayerKey.SelectItem2, info.CallingContext == CommandCallingContext.Console);
-	}
+		var key = info.GetArg(0) switch
+		{
+			"css_1" => PlayerKey.SelectItem1,
+			"css_2" => PlayerKey.SelectItem2,
+			"css_3" => PlayerKey.SelectItem3,
+			"css_4" => PlayerKey.SelectItem4,
+			"css_5" => PlayerKey.SelectItem5,
+			"css_6" => PlayerKey.SelectItem6,
+			"css_7" => PlayerKey.SelectItem7,
+			"css_8" => PlayerKey.SelectItem8,
+			"css_9" => PlayerKey.SelectItem9,
+			"css_0" => PlayerKey.SelectItem0,
+			_ => PlayerKey.Unknown,
+		};
 
-	[ConsoleCommand("css_3")]
-	public void Css3(CCSPlayerController player, CommandInfo info)
-	{
-		if (player is null || !player.IsValid)
-			return;
-		var menuState = DriverInstance?.GetMenuState(player, create: true);
-		if (menuState is null)
-			return;
-		menuState.HandleInput(PlayerKey.SelectItem3, info.CallingContext == CommandCallingContext.Console);
-	}
-
-	[ConsoleCommand("css_4")]
-	public void Css4(CCSPlayerController player, CommandInfo info)
-	{
-		if (player is null || !player.IsValid)
-			return;
-		var menuState = DriverInstance?.GetMenuState(player, create: true);
-		if (menuState is null)
-			return;
-		menuState.HandleInput(PlayerKey.SelectItem4, info.CallingContext == CommandCallingContext.Console);
-	}
-
-	[ConsoleCommand("css_5")]
-	public void Css5(CCSPlayerController player, CommandInfo info)
-	{
-		if (player is null || !player.IsValid)
-			return;
-		var menuState = DriverInstance?.GetMenuState(player, create: true);
-		if (menuState is null)
-			return;
-		menuState.HandleInput(PlayerKey.SelectItem5, info.CallingContext == CommandCallingContext.Console);
-	}
-
-	[ConsoleCommand("css_6")]
-	public void Css6(CCSPlayerController player, CommandInfo info)
-	{
-		if (player is null || !player.IsValid)
-			return;
-		var menuState = DriverInstance?.GetMenuState(player, create: true);
-		if (menuState is null)
-			return;
-		menuState.HandleInput(PlayerKey.SelectItem6, info.CallingContext == CommandCallingContext.Console);
-	}
-
-	[ConsoleCommand("css_7")]
-	public void Css7(CCSPlayerController player, CommandInfo info)
-	{
-		if (player is null || !player.IsValid)
-			return;
-		var menuState = DriverInstance?.GetMenuState(player, create: true);
-		if (menuState is null)
-			return;
-		menuState.HandleInput(PlayerKey.SelectItem7, info.CallingContext == CommandCallingContext.Console);
-	}
-
-	[ConsoleCommand("css_8")]
-	public void Css8(CCSPlayerController player, CommandInfo info)
-	{
-		if (player is null || !player.IsValid)
-			return;
-		var menuState = DriverInstance?.GetMenuState(player, create: true);
-		if (menuState is null)
-			return;
-		menuState.HandleInput(PlayerKey.SelectItem8, info.CallingContext == CommandCallingContext.Console);
-	}
-
-	[ConsoleCommand("css_9")]
-	public void Css9(CCSPlayerController player, CommandInfo info)
-	{
-		if (player is null || !player.IsValid)
-			return;
-		var menuState = DriverInstance?.GetMenuState(player, create: true);
-		if (menuState is null)
-			return;
-		menuState.HandleInput(PlayerKey.SelectItem9, info.CallingContext == CommandCallingContext.Console);
-	}
-
-	[ConsoleCommand("css_0")]
-	public void Css0(CCSPlayerController player, CommandInfo info)
-	{
-		if (player is null || !player.IsValid)
-			return;
-		var menuState = DriverInstance?.GetMenuState(player, create: true);
-		if (menuState is null)
-			return;
-		menuState.HandleInput(PlayerKey.SelectItem0, info.CallingContext == CommandCallingContext.Console);
+		menuState.HandleInput(key, info.CallingContext == CommandCallingContext.Console);
 	}
 
 	[ConsoleCommand("css_sharpmodmenu_pos_x")]

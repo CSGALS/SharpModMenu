@@ -2,6 +2,7 @@ namespace SharpModMenu;
 
 public enum PlayerKey
 {
+	Unknown,
 	Up,
 	Down,
 	Left,
