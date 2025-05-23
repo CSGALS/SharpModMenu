@@ -222,7 +222,7 @@ internal class PlayerMenuState : IDisposable
 	}
 
 	private static readonly Color HighlightTextColor = Color.FromArgb(127, 255, 255, 64);
-	private static readonly Color ForegroundTextColor = Color.FromArgb(229, 150, 32); // 245, 177, 103 with a white bg, maybe 240, 160, 30 at 95% opacity?
+	private static readonly Color ForegroundTextColor = Color.FromArgb(231, 152, 39); // 245, 177, 103 with a white bg, maybe 240, 160, 30 at 95% opacity?
 	private static readonly Color BackgroundTextColor = Color.FromArgb(234, 209, 175);
 
 	private void CreateEntities()
