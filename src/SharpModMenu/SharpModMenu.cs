@@ -73,9 +73,9 @@ public sealed class SharpModMenuPlugin : BasePlugin
 
 		for (int n = 0; n < infoList.Count; n++)
 		{
+			var info = infoList[n];
 			for (int i = 0; i < DriverInstance.MenuEntities.Count; i++)
 			{
-				var info = infoList[n];
 				var entInfo = DriverInstance.MenuEntities[i];
 				if (entInfo.target != info.player && entInfo.target.IsValid)
 					info.info.TransmitEntities.Remove(entInfo.ent);
