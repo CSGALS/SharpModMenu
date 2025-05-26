@@ -410,7 +410,6 @@ internal class PlayerMenuState : IDisposable
 		BackgroundSb.Clear();
 
 		bool firstLine = true;
-		int linesWrote = 0;
 		void writeLine(string text, TextStyling style, int? selectionIndex)
 		{
 			if (firstLine)
@@ -423,23 +422,30 @@ internal class PlayerMenuState : IDisposable
 				BackgroundSb.AppendLine();
 			}
 
-			StringBuilder sb = style.Foreground ? ForegroundTextSb : BackgroundTextSb;
+			int newlineCount = 0;
+			for (int i = 0; i < text.Length; i++)
+				if (text[i] == '\n')
+					newlineCount++;
+			var syncNewlines = newlineCount == 0 ? string.Empty : new string('\n', newlineCount);
+
+			var sb = style.Foreground ? ForegroundTextSb : BackgroundTextSb;
+			var formattedLine = text;
 
 			if (selectionIndex.HasValue)
-			{
-				sb.Append($"{selectionIndex}. ");
-				BackgroundSb.Append($"{selectionIndex}. ");
-
-				if (style.Highlight)
-					HighlightTextSb.Append($"{selectionIndex}. ");
-			}
-			sb.Append(text);
-			BackgroundSb.Append(text);
-
+				formattedLine = $"{selectionIndex}. {formattedLine}";
+			
+			sb.Append(formattedLine);
+			BackgroundSb.Append(formattedLine);
 			if (style.Highlight)
-				HighlightTextSb.Append(text);
+				HighlightTextSb.Append(formattedLine);
 
-			linesWrote++;
+			// keep newlines in sync with the other entities
+			if (sb == ForegroundTextSb)
+				BackgroundTextSb.Append(syncNewlines);
+			else if (sb == BackgroundTextSb)
+				ForegroundTextSb.Append(syncNewlines);
+			if (!style.Highlight)
+				HighlightTextSb.Append(syncNewlines);
 		}
 
 		BuildMenuStrings(CurrentMenu, writeLine);
@@ -490,6 +496,9 @@ internal class PlayerMenuState : IDisposable
 		{
 			if (string.IsNullOrEmpty(text))
 				return;
+
+			if (text.IndexOf('\n') >= 0)
+				text = text.Replace("\n", "<br>");
 
 			if (firstLine)
 				firstLine = false;
