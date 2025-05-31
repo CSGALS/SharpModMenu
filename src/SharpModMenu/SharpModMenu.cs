@@ -33,13 +33,26 @@ public sealed class SharpModMenuPlugin : BasePlugin
 		? "48 8B C4 44 88 48 20 44 89 40 18 48 89 50 10 53"
 		: "55 48 89 E5 41 57 41 56 41 89 D6 41 55 41 54 49 89 FC 53 48 83 EC 38";
 	// void* FASTCALL ProcessUsercmds(CCSPlayerController* player, CUserCmdPB* cmds, int cmdCount, bool paused, float margin);
-	private static MemoryFunctionVoid<nint, nint, int, bool, float, nint> ProcessUserCmdsFunc { get; } = new(ProcessUserCmdsSig, Addresses.ServerPath);
+	private static MemoryFunctionWithReturn<nint, nint, int, bool, float, nint, nint>? ProcessUserCmdsFunc { get; set; }
+	private bool UseFallbackWasdInputMethod { get; set; } = false;
 
 	public override void Load(bool hotReload)
 	{
 		DriverInstance = new();
 
-		ProcessUserCmdsFunc.Hook(ProcessUserCmds, HookMode.Pre);
+		// delay hooking ProcessUserCmds until CS2Fixes et al have had a chance to hook it
+		Server.NextWorldUpdate(() =>
+		{
+			ProcessUserCmdsFunc ??= new(ProcessUserCmdsSig, Addresses.ServerPath);
+			if (ProcessUserCmdsFunc.Handle == nint.Zero)
+			{
+				Console.WriteLine($"SharpModMenu: Failed to hook ProcessUserCmds, using subpar fallback method");
+				UseFallbackWasdInputMethod = true;
+				return;
+			}
+
+			ProcessUserCmdsFunc.Hook(ProcessUserCmds, HookMode.Pre);
+		});
 
 		UniversalMenu.RegisterDriver("SharpModMenu", DriverInstance);
 
@@ -51,12 +64,58 @@ public sealed class SharpModMenuPlugin : BasePlugin
 	{
 		UniversalMenu.UnregisterDriver("SharpModMenu");
 
-		ProcessUserCmdsFunc.Unhook(ProcessUserCmds, HookMode.Pre);
+		ProcessUserCmdsFunc?.Unhook(ProcessUserCmds, HookMode.Pre);
 	}
 
 	private void OnTick()
 	{
-		for(int i = 0; i < DriverInstance!.ActiveMenuStates.Count; i++)
+		if (UseFallbackWasdInputMethod)
+		{
+			for (int i = 0; i < DriverInstance!.ActiveMenuStates.Count; i++)
+			{
+				var menuState = DriverInstance!.ActiveMenuStates[i];
+				if (!menuState.Player.IsValid)
+					continue;
+
+				if (!menuState.IsUsingKeybinds)
+				{
+					var buttons = menuState.Player.Buttons;
+
+					bool pressingForward = buttons.HasFlag(PlayerButtons.Forward);
+					bool pressingBack = buttons.HasFlag(PlayerButtons.Back);
+					bool pressingLeft = buttons.HasFlag(PlayerButtons.Left);
+					bool pressingRight = buttons.HasFlag(PlayerButtons.Right);
+					bool pressingUse = buttons.HasFlag(PlayerButtons.Use);
+					bool pressingTab = buttons.HasFlag((PlayerButtons)0x200000000);
+					bool pressingReload = buttons.HasFlag(PlayerButtons.Reload);
+
+					if (pressingForward && pressingForward != menuState.WasPressingForward)
+						menuState.HandleInput(PlayerKey.Up, false);
+					if (pressingBack && pressingBack != menuState.WasPressingBack)
+						menuState.HandleInput(PlayerKey.Down, false);
+					if (pressingLeft && pressingLeft != menuState.WasPressingLeft)
+						menuState.HandleInput(PlayerKey.Left, false);
+					if (pressingRight && pressingRight != menuState.WasPressingRight)
+						menuState.HandleInput(PlayerKey.Right, false);
+					if (pressingUse && pressingUse != menuState.WasPressingUse)
+						menuState.HandleInput(PlayerKey.Select, false);
+					if (pressingTab && pressingTab != menuState.WasPressingTab)
+						menuState.HandleInput(PlayerKey.ToggleFocus, false);
+					if (pressingReload && pressingReload != menuState.WasPressingReload)
+						menuState.HandleInput(PlayerKey.Close, false);
+
+					menuState.WasPressingForward = pressingForward;
+					menuState.WasPressingBack = pressingBack;
+					menuState.WasPressingLeft = pressingLeft;
+					menuState.WasPressingRight = pressingRight;
+					menuState.WasPressingUse = pressingUse;
+					menuState.WasPressingTab = pressingTab;
+					menuState.WasPressingReload = pressingReload;
+				}
+			}
+		}
+
+		for (int i = 0; i < DriverInstance!.ActiveMenuStates.Count; i++)
 			DriverInstance!.ActiveMenuStates[i].Tick();
 	}
 
