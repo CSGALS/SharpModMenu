@@ -241,6 +241,7 @@ internal class PlayerMenuState : IDisposable
 	/// </summary>
 	private bool CreateInitialInvisibleWorldTextEntity()
 	{
+		return false;
 		var observerInfo = Player.GetObserverInfo();
 
 		if (_CreatedFor.HasValue && _CreatedFor.Value == observerInfo.Observing?.Handle)
@@ -309,7 +310,7 @@ internal class PlayerMenuState : IDisposable
 	private static QAngle _Ang = new();
 	private void UpdateEntity(
 		CPointWorldText ent,
-		CCSGOViewModel? viewmodel,
+		CBaseEntity? viewmodel,
 		string newText,
 		Vector3 position,
 		Vector3 angles,
@@ -356,9 +357,11 @@ internal class PlayerMenuState : IDisposable
 	private readonly StringBuilder BackgroundSb = new();
 	private nint MenuCurrentObserver { get; set; } = nint.Zero;
 	private ObserverMode MenuCurrentObserverMode { get; set; }
-	private CCSGOViewModel? MenuCurrentViewmodel { get; set; }
+	private CBaseEntity? MenuCurrentViewmodel { get; set; }
 	public bool DrawActiveMenu()
 	{
+		return false; // nothing to parent to right now, further work needed
+
 		if (ReferenceEquals(CurrentMenu, LastPresented))
 		{
 			if (CurrentMenu is not null && !CurrentMenu.IsDirty)

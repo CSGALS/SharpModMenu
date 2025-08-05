@@ -31,7 +31,7 @@ public sealed class SharpModMenuPlugin : BasePlugin
 	// https://github.com/CharlesBarone/CSSharp-Fixes/blob/9f20129bd4d17dcf7f30311ac0d24ec56895b04a/gamedata/cssharpfixes.json#L44
 	private static string ProcessUserCmdsSig => RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
 		? "48 8B C4 44 88 48 20 44 89 40 18 48 89 50 10 53"
-		: "55 48 89 E5 41 57 41 56 41 89 D6 41 55 41 54 49 89 FC 53 48 83 EC 38";
+		: "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 89 FB 48 83 EC ? 89 4D";
 	// void* FASTCALL ProcessUsercmds(CCSPlayerController* player, CUserCmdPB* cmds, int cmdCount, bool paused, float margin);
 	private static MemoryFunctionWithReturn<nint, nint, int, bool, float, nint, nint>? ProcessUserCmdsFunc { get; set; }
 	private bool UseFallbackWasdInputMethod { get; set; } = false;

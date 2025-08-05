@@ -32,6 +32,9 @@ internal static class PlayerExtensions
 {
 	public static ObserverInfo GetObserverInfo(this CCSPlayerController player)
 	{
+		if (!player.IsValid)
+			return new() { Mode = ObserverMode.Roaming, Observing = null };
+
 		if (!player.Pawn.IsValid || player.Pawn.Value is not CBasePlayerPawn pawn)
 			return new() { Mode = ObserverMode.Roaming, Observing = null };
 
@@ -79,15 +82,18 @@ internal static class PlayerExtensions
 		};
 	}
 
-	public static CCSGOViewModel? GetPredictedViewmodel(this ObserverInfo observerInfo)
+	public static CBaseEntity? GetPredictedViewmodel(this ObserverInfo observerInfo)
 	{
+		// no viewmodel ability right now
+		return null;
+
 		if (observerInfo.Observing is not CCSPlayerPawnBase pawn)
 			return null;
-		if (pawn.ViewModelServices is null)
-			return null;
+		//if (pawn.ViewModelServices is null)
+		//	return null;
 		if (observerInfo.Mode != ObserverMode.FirstPerson)
 			return null;
-
+		/*
 		var offset = Schema.GetSchemaOffset("CCSPlayer_ViewModelServices", "m_hViewModel");
 		nint viewmodelHandleAddress = pawn.ViewModelServices.Handle + offset + 4;
 
@@ -101,5 +107,6 @@ internal static class PlayerExtensions
 		}
 
 		return handle.Value;
+		*/
 	}
 }
