@@ -32,6 +32,10 @@ When these binds are not present, the player is prevented from moving, and the f
 In the event that there is no spectator on which to create the predicted view model, the system will further fall back to
 a CenterHtmlMenu for that free roaming player.
 
+> [!NOTE]  
+> Since the 2025 July update, a method to parent an entity to a player's view is unknown or impossible.
+> Unless a new method is found, SharpModMenu will always use the "fallback" HTML menu.
+
 ![](./docs/CenterHtmlFallbackCropped.png)
 
 Many thanks to [@T3Marius's CS2ScreenMenuAPI](https://github.com/T3Marius/CS2ScreenMenuAPI) for acting as reference when it comes to using the point_worldtext entity.
