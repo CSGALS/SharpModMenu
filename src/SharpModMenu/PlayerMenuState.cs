@@ -358,6 +358,7 @@ internal class PlayerMenuState : IDisposable
 	private nint MenuCurrentObserver { get; set; } = nint.Zero;
 	private ObserverMode MenuCurrentObserverMode { get; set; }
 	private CBaseEntity? MenuCurrentViewmodel { get; set; }
+
 	public bool DrawActiveMenu()
 	{
 		return false; // nothing to parent to right now, further work needed
@@ -391,12 +392,9 @@ internal class PlayerMenuState : IDisposable
 		CurrentMenu.IsDirty = false;
 
 		var observerInfo = Player.GetObserverInfo();
-		if (observerInfo.Mode != ObserverMode.FirstPerson)
-		{
-			CanUseKeybinds = false;
-			return false;
-		}
 		CanUseKeybinds = observerInfo.Mode == ObserverMode.FirstPerson && observerInfo.Observing?.Index == Player.Pawn.Index;
+		if (observerInfo.Mode != ObserverMode.FirstPerson)
+			return false;
 
 		var maybeEyeAngles = observerInfo.GetEyeAngles();
 		if (!maybeEyeAngles.HasValue)
@@ -487,6 +485,9 @@ internal class PlayerMenuState : IDisposable
 
 	public void DrawActiveMenuHtml()
 	{
+		var observerInfo = Player.GetObserverInfo();
+		CanUseKeybinds = observerInfo.Mode == ObserverMode.FirstPerson && observerInfo.Observing?.Index == Player.Pawn.Index;
+
 		if (CurrentMenu is null)
 		{
 			HtmlContent = null;
@@ -494,14 +495,14 @@ internal class PlayerMenuState : IDisposable
 		}
 
 		bool firstLine = true;
-		int linesWrote = 0;
 		void writeLine(string text, TextStyling style, int? selectIndex)
 		{
-			if (string.IsNullOrEmpty(text))
-				return;
-
 			if (text.IndexOf('\n') >= 0)
+			{
 				text = text.Replace("\n", "<br>");
+				while (text.Contains("<br><br>"))
+					text = text.Replace("<br><br>", "<br><font color='#000'>.</font><br>");
+			}
 
 			if (firstLine)
 				firstLine = false;
@@ -516,9 +517,11 @@ internal class PlayerMenuState : IDisposable
 				{ Foreground: false, Highlight: false } => "#E7CCA5",
 			};
 
-			var selectionPrefix = selectIndex.HasValue ? $"/{selectIndex.Value} " : string.Empty;
-			HtmlTextSb.Append($"<font color='{color}'>{selectionPrefix}{text}</font>");
-			linesWrote++;
+			var selectionPrefix = selectIndex.HasValue ? $"{selectIndex.Value}. " : string.Empty;
+			if (string.IsNullOrEmpty(text))
+				HtmlTextSb.Append($"<font color='#000'>.</font>");
+			else
+				HtmlTextSb.Append($"<font color='{color}'>{selectionPrefix}{text}</font>");
 		}
 
 		HtmlTextSb.Clear();
