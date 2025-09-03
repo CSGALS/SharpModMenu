@@ -53,7 +53,6 @@ internal static class PlayerExtensions
 				ObserverMode_t.OBS_MODE_IN_EYE => ObserverMode.FirstPerson,
 				ObserverMode_t.OBS_MODE_CHASE => ObserverMode.ThirdPerson,
 				ObserverMode_t.OBS_MODE_ROAMING => ObserverMode.Roaming,
-				ObserverMode_t.OBS_MODE_DIRECTED => ObserverMode.Roaming,
 				_ => ObserverMode.Roaming,
 			},
 			Observing = observing,
@@ -66,7 +65,7 @@ internal static class PlayerExtensions
 		if (observerInfo.Observing is not CCSPlayerPawnBase pawn)
 			return null;
 
-		var eyeAngles = pawn.EyeAngles;
+		var eyeAngles = pawn.V_angle;
 		NativeAPI.AngleVectors(eyeAngles.Handle, _Forward.Handle, _Right.Handle, _Up.Handle);
 
 		var origin = new Vector3(pawn.AbsOrigin!.X, pawn.AbsOrigin!.Y, pawn.AbsOrigin!.Z);
