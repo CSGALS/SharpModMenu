@@ -142,7 +142,15 @@ internal class PlayerMenuState : IDisposable
 			if (value)
 				Driver.ActiveMenuStates.Add(this);
 			else
+			{
 				Driver.ActiveMenuStates.Remove(this);
+				if (ShowingHtmlContent)
+				{
+					ShowingHtmlContent = false;
+					Player.PrintToCenterHtml(HtmlContent ?? "<font></font>", 0);
+					HtmlContent = null;
+				}
+			}
 		}
 	}
 
@@ -609,13 +617,17 @@ internal class PlayerMenuState : IDisposable
 	}
 
 	public bool ForceRefresh = true;
+	public bool ShowingHtmlContent;
 	public void Tick()
 	{
 		if (CurrentMenu is null)
 			return;
 
 		if (PresentingHtml && HtmlContent is not null)
+		{
+			ShowingHtmlContent = true;
 			Player.PrintToCenterHtml(HtmlContent);
+		}
 
 		var observerInfo = Player.GetObserverInfo();
 

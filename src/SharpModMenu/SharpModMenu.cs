@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -13,6 +14,7 @@ using CounterStrikeSharp.API.Modules.Memory;
 using CounterStrikeSharp.API.Modules.Memory.DynamicFunctions;
 
 using CSSUniversalMenuAPI;
+
 using static CounterStrikeSharp.API.Core.Listeners;
 
 namespace SharpModMenu;
@@ -58,6 +60,7 @@ public sealed class SharpModMenuPlugin : BasePlugin
 
 		RegisterListener<OnTick>(OnTick);
 		RegisterListener<CheckTransmit>(OnCheckTransmit);
+		RegisterListener<OnMapStart>(OnMapStartHandler);
 	}
 
 	public override void Unload(bool hotReload)
@@ -67,8 +70,28 @@ public sealed class SharpModMenuPlugin : BasePlugin
 		ProcessUserCmdsFunc?.Unhook(ProcessUserCmds, HookMode.Pre);
 	}
 
+	// thanks to Deana for this snippet
+	private CCSGameRules? GameRulesEnt { get; set; }
+	private bool LoadedGameRules { get; set; }
+
+	private void OnMapStartHandler(string map)
+	{
+		GameRulesEnt = null;
+		LoadedGameRules = false;
+	}
+
 	private void OnTick()
 	{
+		if (!LoadedGameRules)
+		{
+			LoadedGameRules = true;
+			GameRulesEnt = Utilities.FindAllEntitiesByDesignerName<CCSGameRulesProxy>("cs_gamerules").FirstOrDefault()?.GameRules;
+		}
+		else if (GameRulesEnt is not null)
+		{
+			GameRulesEnt.GameRestart = GameRulesEnt.RestartRoundTime < Server.CurrentTime;
+		}
+
 		if (UseFallbackWasdInputMethod)
 		{
 			for (int i = 0; i < DriverInstance!.ActiveMenuStates.Count; i++)
