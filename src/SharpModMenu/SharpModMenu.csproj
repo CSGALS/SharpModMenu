@@ -10,4 +10,9 @@
     <PackageReference Include="CSSUniversalMenuAPI" Version="0.4.0" ExcludeAssets="runtime" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="sharpmodmenu_config.jsonc" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="sharpmodmenu_translations.jsonc" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

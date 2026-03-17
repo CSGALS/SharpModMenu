@@ -6,6 +6,7 @@ using System.Text;
 
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
+using CounterStrikeSharp.API.Modules.Memory;
 using CounterStrikeSharp.API.Modules.Utils;
 
 using CSSUniversalMenuAPI;
@@ -47,6 +48,9 @@ internal class PlayerMenuState : IDisposable
 
 	public int ClientTick { get; set; }
 	public int? InhibitWeaponSelection { get; set; }
+	private bool _movementFrozen;
+	private bool _hasPreviousMoveType;
+	private MoveType_t _previousMoveType = MoveType_t.MOVETYPE_WALK;
 
 	public void HandleInput(PlayerKey key, bool fromBind)
 	{
@@ -100,11 +104,25 @@ internal class PlayerMenuState : IDisposable
 					(CurrentMenu as IMenu).Exit();
 				break;
 			case PlayerKey.Up:
+				if (!fromBind &&
+					Driver.Options.WasdAutoPage &&
+					TryHandleWasdAutoPage(PlayerKey.Up, buttonState))
+				{
+					break;
+				}
+
 				CurrentMenu.SelectionIndex = CurrentMenu.PrevSelectionIndex;
 				CurrentMenu.IsDirty = true;
 				Refresh(sortPriorities: false);
 				break;
 			case PlayerKey.Down:
+				if (!fromBind &&
+					Driver.Options.WasdAutoPage &&
+					TryHandleWasdAutoPage(PlayerKey.Down, buttonState))
+				{
+					break;
+				}
+
 				CurrentMenu.SelectionIndex = CurrentMenu.NextSelectionIndex;
 				CurrentMenu.IsDirty = true;
 				Refresh(sortPriorities: false);
@@ -129,6 +147,45 @@ internal class PlayerMenuState : IDisposable
 		}
 	}
 
+	private bool TryHandleWasdAutoPage(PlayerKey key, MenuButtonState buttonState)
+	{
+		if (CurrentMenu is null)
+			return false;
+
+		var itemsStart = CurrentMenu.CurrentPage * Menu.ItemsPerPage;
+		var itemsRemaining = CurrentMenu.Items.Count - itemsStart;
+		var itemsVisible = Math.Min(Menu.ItemsPerPage, Math.Max(0, itemsRemaining));
+		if (itemsVisible <= 0)
+			return false;
+
+		if (key == PlayerKey.Up &&
+			CurrentMenu.SelectionIndex == 0 &&
+			buttonState.ShowPrevButton)
+		{
+			CurrentMenu.CurrentPage--;
+			var prevPageStart = CurrentMenu.CurrentPage * Menu.ItemsPerPage;
+			var prevPageRemaining = CurrentMenu.Items.Count - prevPageStart;
+			var prevPageItemsVisible = Math.Min(Menu.ItemsPerPage, Math.Max(0, prevPageRemaining));
+			CurrentMenu.SelectionIndex = Math.Max(0, prevPageItemsVisible - 1);
+			CurrentMenu.IsDirty = true;
+			Refresh(sortPriorities: false);
+			return true;
+		}
+
+		if (key == PlayerKey.Down &&
+			CurrentMenu.SelectionIndex == itemsVisible - 1 &&
+			buttonState.ShowNextButton)
+		{
+			CurrentMenu.CurrentPage++;
+			CurrentMenu.SelectionIndex = 0;
+			CurrentMenu.IsDirty = true;
+			Refresh(sortPriorities: false);
+			return true;
+		}
+
+		return false;
+	}
+
 	public bool PresentingHtml { get; set; }
 	private bool _MenuActive;
 	private bool MenuActive
@@ -150,6 +207,7 @@ internal class PlayerMenuState : IDisposable
 					Player.PrintToCenterHtml(HtmlContent ?? "<font></font>", 0);
 					HtmlContent = null;
 				}
+				SetMovementFrozen(false);
 			}
 		}
 	}
@@ -184,6 +242,7 @@ internal class PlayerMenuState : IDisposable
 		if (CreateInitialInvisibleWorldTextEntity())
 		{
 			ForceRefresh = true;
+			UpdateMovementFreezeState();
 			return;
 		}
 
@@ -198,6 +257,8 @@ internal class PlayerMenuState : IDisposable
 			DrawActiveMenuHtml();
 			PresentingHtml = true;
 		}
+
+		UpdateMovementFreezeState();
 	}
 
 	public void Dispose()
@@ -229,16 +290,13 @@ internal class PlayerMenuState : IDisposable
 		ForegroundText = BackgroundText = Background = null;
 	}
 
-	private static readonly Color HighlightTextColor = Color.FromArgb(127, 255, 255, 64);
-	private static readonly Color ForegroundTextColor = Color.FromArgb(231, 152, 39); // 245, 177, 103 with a white bg, maybe 240, 160, 30 at 95% opacity?
-	private static readonly Color BackgroundTextColor = Color.FromArgb(234, 209, 175);
-
 	private void CreateEntities()
 	{
-		HighlightText = CreateWorldText(textColor: HighlightTextColor, false, 0.001f);
-		ForegroundText = CreateWorldText(textColor: ForegroundTextColor, false, 0.000f);
-		BackgroundText = CreateWorldText(textColor: BackgroundTextColor, false, -0.001f);
-		Background = CreateWorldText(textColor: Color.FromArgb(200, 127, 127, 127), true, -0.002f);
+		var options = Driver.Options;
+		HighlightText = CreateWorldText(textColor: options.WorldTextHighlightColor, false, 0.001f);
+		ForegroundText = CreateWorldText(textColor: options.WorldTextForegroundColor, false, 0.000f);
+		BackgroundText = CreateWorldText(textColor: options.WorldTextBackgroundTextColor, false, -0.001f);
+		Background = CreateWorldText(textColor: options.WorldTextPanelColor, true, -0.002f);
 	}
 
 	// sometimes creating an ent for a pawn requires it to be done twice, so
@@ -280,11 +338,10 @@ internal class PlayerMenuState : IDisposable
 		Color textColor,
 		bool drawBackground,
 		float depthOffset,
-		string text = "",
-		int fontSize = 25,
-		string fontName = "Tahoma Bold")
+		string text = "")
 	{
 		var ent = Utilities.CreateEntityByName<CPointWorldText>("point_worldtext")!;
+		var options = Driver.Options;
 
 		if (ent is not { IsValid: true })
 			throw new Exception("CreateWorldText(): Failed to create entity");
@@ -293,8 +350,8 @@ internal class PlayerMenuState : IDisposable
 
 		ent.MessageText = text; // limit of 512 chars
 		ent.Enabled = true;
-		ent.FontName = fontName;
-		ent.FontSize = fontSize;
+		ent.FontName = options.WorldTextFontName;
+		ent.FontSize = options.WorldTextFontSize;
 		ent.Fullbright = true;
 		ent.Color = textColor;
 		ent.WorldUnitsPerPx = 0.0085f;
@@ -441,7 +498,7 @@ internal class PlayerMenuState : IDisposable
 			var formattedLine = text;
 
 			if (selectionIndex.HasValue)
-				formattedLine = $"{selectionIndex}. {formattedLine}";
+				formattedLine = FormatSelectableLineForWorld(formattedLine, style.Highlight);
 			
 			sb.Append(formattedLine);
 			BackgroundSb.Append(formattedLine);
@@ -519,21 +576,20 @@ internal class PlayerMenuState : IDisposable
 
 			var color = style switch
 			{
-				{ Foreground: true, Highlight: true} => "#EFCE21",
-				{ Foreground: true, Highlight: false } => "#E28B12",
-				{ Foreground: false, Highlight: true } => "#EFE472",
-				{ Foreground: false, Highlight: false } => "#E7CCA5",
+				{ Foreground: true, Highlight: true } => Driver.Options.HtmlForegroundHighlightColor,
+				{ Foreground: true, Highlight: false } => Driver.Options.HtmlForegroundColor,
+				{ Foreground: false, Highlight: true } => Driver.Options.HtmlBackgroundHighlightColor,
+				{ Foreground: false, Highlight: false } => Driver.Options.HtmlBackgroundColor,
 			};
 
-			var selectionPrefix = selectIndex.HasValue ? $"{selectIndex.Value}. " : string.Empty;
 			if (string.IsNullOrEmpty(text))
-				HtmlTextSb.Append($"<font color='#000'>.</font>");
+				HtmlTextSb.Append($"<font color='{Driver.Options.HtmlEmptyLineColor}'>.</font>");
 			else
-				HtmlTextSb.Append($"<font color='{color}'>{selectionPrefix}{text}</font>");
+				HtmlTextSb.Append($"<font color='{color}'>{FormatSelectableLineForHtml(text, selectIndex.HasValue, style.Highlight)}</font>");
 		}
 
 		HtmlTextSb.Clear();
-		HtmlTextSb.Append("<font class='fontSize-s'>");
+		HtmlTextSb.Append($"<font class='{Driver.Options.HtmlFontClass}'>");
 		BuildMenuStrings(CurrentMenu, writeLine);
 		HtmlTextSb.Append("</font>");
 
@@ -544,6 +600,41 @@ internal class PlayerMenuState : IDisposable
 	{
 		public bool Foreground { get; set; }
 		public bool Highlight { get; set; }
+	}
+
+	private string FormatSelectableLineForWorld(string text, bool isSelected)
+	{
+		if (!isSelected)
+			return $"  {text}";
+
+		var icon = GetSelectorIcon();
+		return $"{icon} {text}";
+	}
+
+	private string FormatSelectableLineForHtml(string text, bool isSelectable, bool isSelected)
+	{
+		if (!isSelectable)
+			return text;
+
+		if (!isSelected)
+			return $"&#160;&#160;{text}";
+
+		var icon = GetSelectorIcon();
+		var iconColor = Driver.Options.SelectorIconColor;
+		var iconMarkup = $"<font color='{iconColor}'>{icon}</font>";
+		return $"{iconMarkup} {text}";
+	}
+
+	private string GetSelectorIcon()
+	{
+		var icon = Driver.Options.SelectorIcon;
+		if (string.IsNullOrWhiteSpace(icon))
+			return "\u279C";
+
+		icon = icon.Replace("\r", string.Empty, StringComparison.Ordinal)
+			.Replace("\n", string.Empty, StringComparison.Ordinal)
+			.Trim();
+		return string.IsNullOrWhiteSpace(icon) ? "\u279C" : icon;
 	}
 
 	private void BuildMenuStrings(Menu currentMenu, Action<string, TextStyling, int?> writeLine)
@@ -569,51 +660,145 @@ internal class PlayerMenuState : IDisposable
 		}
 
 		var btnStates = currentMenu.GetButtonStates();
-		if (btnStates.ShowNavigation || btnStates.ShowExitButton)
+		var previousText = Driver.Translate(Player, "nav.previous", "Previous");
+		var backText = Driver.Translate(Player, "nav.back", "Back");
+		var nextText = Driver.Translate(Player, "nav.next", "Next");
+		var closeText = Driver.Translate(
+			Player,
+			"nav.close",
+			Driver.Translate(Player, "nav.exit", "Close"));
+
+		int maxItemsPerPage = Math.Min(Menu.ItemsPerPage, currentMenu.Items.Count);
+		int blankLines = maxItemsPerPage - itemsInPage + 1;
+		var useCompactHtmlFooter =
+			PresentingHtml &&
+			!string.Equals(Driver.Options.HtmlFontClass, "fontSize-s", StringComparison.OrdinalIgnoreCase);
+
+		if (useCompactHtmlFooter)
 		{
-			int maxItemsPerPage = Math.Min(Menu.ItemsPerPage, currentMenu.Items.Count);
-			int blankLines = maxItemsPerPage - itemsInPage + 1;
-
-			for (int i = 0; i < blankLines; i++)
-				writeLine(string.Empty, default, null);
-
-			if (btnStates.ShowNavigation)
-			{
-				var backPrevStyle = new TextStyling()
-				{
-					Foreground = true,
-					Highlight = !IsUsingKeybinds && currentMenu.SelectionIndex == 7,
-				};
-
-				if (btnStates.ShowPrevButton)
-					writeLine("Previous", backPrevStyle, 8);
-				else if (btnStates.ShowBackButton)
-					writeLine("Back", backPrevStyle, 8);
-				else
-					writeLine(string.Empty, backPrevStyle, null);
-
-				var nextStyle = new TextStyling()
-				{
-					Foreground = true,
-					Highlight = !IsUsingKeybinds && currentMenu.SelectionIndex == 8,
-				};
-				if (btnStates.ShowNextButton)
-					writeLine("Next", nextStyle, 9);
-				else
-					writeLine(string.Empty, nextStyle, null);
-			}
-
-			if (btnStates.ShowExitButton)
-			{
-				var exitStyle = new TextStyling()
-				{
-					Foreground = false,
-					Highlight = !IsUsingKeybinds && currentMenu.SelectionIndex == 9,
-				};
-				bool highlightBackPrev = !IsUsingKeybinds && currentMenu.SelectionIndex == 9;
-				writeLine("Exit", exitStyle, 0);
-			}
+			blankLines = 0;
 		}
+
+		for (int i = 0; i < blankLines; i++)
+			writeLine(string.Empty, default, null);
+
+		var backPrevEnabled = btnStates.ShowPrevButton || btnStates.ShowBackButton;
+		var backPrevStyle = new TextStyling()
+		{
+			Foreground = backPrevEnabled,
+			Highlight = !IsUsingKeybinds && currentMenu.SelectionIndex == 7,
+		};
+		var backPrevText = btnStates.ShowPrevButton ? previousText : btnStates.ShowBackButton ? backText : previousText;
+		if (useCompactHtmlFooter)
+		{
+			var backPrevLabel = backPrevEnabled ? $"8. {backPrevText}" : $"8. ({backPrevText})";
+			var nextLabel = btnStates.ShowNextButton ? $"9. {nextText}" : $"9. ({nextText})";
+			var closeLabel = btnStates.ShowExitButton ? $"0. {closeText}" : $"0. ({closeText})";
+			var compactFallback = $"{backPrevLabel}   {nextLabel}   {closeLabel}";
+			var compactFooterText = string.IsNullOrWhiteSpace(Driver.Options.HtmlCompactFooterMessage)
+				? Driver.Translate(Player, "nav.compact_message", compactFallback)
+				: Driver.Options.HtmlCompactFooterMessage;
+
+			if (string.IsNullOrWhiteSpace(compactFooterText))
+				compactFooterText = compactFallback;
+
+			var compactFooterFontClass = Driver.Options.HtmlCompactFooterFontClass;
+			if (!string.IsNullOrWhiteSpace(compactFooterFontClass))
+			{
+				compactFooterFontClass = compactFooterFontClass
+					.Replace("'", string.Empty, StringComparison.Ordinal)
+					.Replace("\"", string.Empty, StringComparison.Ordinal)
+					.Trim();
+				if (!string.IsNullOrWhiteSpace(compactFooterFontClass))
+				{
+					compactFooterText = $"<font class='{compactFooterFontClass}'>{compactFooterText}</font>";
+				}
+			}
+
+			writeLine(compactFooterText, new TextStyling { Foreground = true }, null);
+			return;
+		}
+
+		writeLine(backPrevText, backPrevStyle, 8);
+
+		var nextStyle = new TextStyling()
+		{
+			Foreground = btnStates.ShowNextButton,
+			Highlight = !IsUsingKeybinds && currentMenu.SelectionIndex == 8,
+		};
+		writeLine(nextText, nextStyle, 9);
+
+		var closeStyle = new TextStyling()
+		{
+			Foreground = btnStates.ShowExitButton,
+			Highlight = !IsUsingKeybinds && currentMenu.SelectionIndex == 9,
+		};
+		writeLine(closeText, closeStyle, 0);
+	}
+
+	private void UpdateMovementFreezeState()
+	{
+		SetMovementFrozen(ShouldFreezePlayerMovement());
+	}
+
+	private bool ShouldFreezePlayerMovement()
+	{
+		if (!Driver.Options.FreezePlayerMovement)
+			return false;
+
+		if (CurrentMenu is null)
+			return false;
+
+		// Keep native keybind behavior untouched (players can still move if they use numeric binds).
+		if (IsUsingKeybinds)
+			return false;
+
+		if (!Player.IsValid || Player.IsBot)
+			return false;
+
+		var pawn = Player.PlayerPawn.Value;
+		return pawn is { IsValid: true };
+	}
+
+	private void SetMovementFrozen(bool freeze)
+	{
+		var pawn = Player.PlayerPawn.Value;
+		if (pawn is not { IsValid: true })
+		{
+			if (!freeze)
+			{
+				_movementFrozen = false;
+				_hasPreviousMoveType = false;
+			}
+
+			return;
+		}
+
+		if (freeze)
+		{
+			if (_movementFrozen)
+				return;
+
+			_previousMoveType = pawn.MoveType;
+			_hasPreviousMoveType = true;
+
+			var freezeMoveType = MoveType_t.MOVETYPE_NONE;
+			pawn.MoveType = freezeMoveType;
+			Utilities.SetStateChanged(pawn, "CBaseEntity", "m_MoveType");
+			Schema.GetRef<MoveType_t>(pawn.Handle, "CBaseEntity", "m_nActualMoveType") = freezeMoveType;
+			_movementFrozen = true;
+			return;
+		}
+
+		if (!_movementFrozen)
+			return;
+
+		var restoredMoveType = _hasPreviousMoveType ? _previousMoveType : MoveType_t.MOVETYPE_WALK;
+		pawn.MoveType = restoredMoveType;
+		Utilities.SetStateChanged(pawn, "CBaseEntity", "m_MoveType");
+		Schema.GetRef<MoveType_t>(pawn.Handle, "CBaseEntity", "m_nActualMoveType") = restoredMoveType;
+		_movementFrozen = false;
+		_hasPreviousMoveType = false;
 	}
 
 	public bool ForceRefresh = true;
@@ -621,7 +806,10 @@ internal class PlayerMenuState : IDisposable
 	public void Tick()
 	{
 		if (CurrentMenu is null)
+		{
+			SetMovementFrozen(false);
 			return;
+		}
 
 		if (PresentingHtml && HtmlContent is not null)
 		{
@@ -630,6 +818,8 @@ internal class PlayerMenuState : IDisposable
 		}
 
 		var observerInfo = Player.GetObserverInfo();
+		CanUseKeybinds = observerInfo.Mode == ObserverMode.FirstPerson && observerInfo.Observing?.Index == Player.Pawn.Index;
+		UpdateMovementFreezeState();
 
 		bool refresh =
 			ForceRefresh ||

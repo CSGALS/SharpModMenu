@@ -1,9 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Globalization;
+using System.IO;
 using System.Linq;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
@@ -12,6 +16,7 @@ using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Memory;
 using CounterStrikeSharp.API.Modules.Memory.DynamicFunctions;
+using Microsoft.Extensions.Logging;
 
 using CSSUniversalMenuAPI;
 
@@ -26,8 +31,26 @@ public sealed class SharpModMenuPlugin : BasePlugin
 	public override string ModuleDescription => "CSSUniversalMenuAPI menu driver to behave like SourceMod menus";
 	public override string ModuleVersion => Verlite.Version.Full;
 
+	private const string PrimaryConfigFileName = "sharpmodmenu_config.jsonc";
+	private const string PrimaryTranslationsFileName = "sharpmodmenu_translations.jsonc";
+	private static readonly string[] SupportedConfigFileNames = [PrimaryConfigFileName, "menu_config.jsonc"];
+	private static readonly string[] SupportedTranslationsFileNames = [PrimaryTranslationsFileName, "menu_translations.jsonc"];
+	private static readonly string[] ConfigDirectoryNames = ["SharpModMenu", "sharpmodmenu"];
+	private static readonly string[] SharedDirectoryNames = ["SharpModMenu", "sharpmodmenu"];
+	private static readonly JsonSerializerOptions JsonOptions = new()
+	{
+		WriteIndented = true,
+		ReadCommentHandling = JsonCommentHandling.Skip,
+		AllowTrailingCommas = true,
+		PropertyNameCaseInsensitive = true,
+	};
 
 	private MenuDriver? DriverInstance { get; set; }
+	private SharpModMenuPluginConfig PluginConfig { get; set; } = new();
+	private SharpModMenuRuntimeOptions RuntimeOptions { get; set; } = SharpModMenuRuntimeOptions.Default;
+	private SharpModMenuTranslations Translations { get; set; } = SharpModMenuTranslations.Default;
+	private string ConfigPath { get; set; } = string.Empty;
+	private string TranslationsPath { get; set; } = string.Empty;
 
 	// near: "%sRecv usercmd %d.  Margin:%5.1fms net +%2d queue =%5.1f total\n"
 	// https://github.com/CharlesBarone/CSSharp-Fixes/blob/9f20129bd4d17dcf7f30311ac0d24ec56895b04a/gamedata/cssharpfixes.json#L44
@@ -40,7 +63,8 @@ public sealed class SharpModMenuPlugin : BasePlugin
 
 	public override void Load(bool hotReload)
 	{
-		DriverInstance = new();
+		LoadDataFiles();
+		DriverInstance = new(RuntimeOptions, Translations);
 
 		// delay hooking ProcessUserCmds until CS2Fixes et al have had a chance to hook it
 		Server.NextWorldUpdate(() =>
@@ -60,7 +84,493 @@ public sealed class SharpModMenuPlugin : BasePlugin
 
 		RegisterListener<OnTick>(OnTick);
 		RegisterListener<CheckTransmit>(OnCheckTransmit);
-		RegisterListener<OnMapStart>(OnMapStartHandler);
+	}
+
+	private bool IsDebugEnabled()
+	{
+		return PluginConfig.Debug;
+	}
+
+	private void LogDebug(string message, params object?[] args)
+	{
+		if (!IsDebugEnabled())
+		{
+			return;
+		}
+
+		Logger.LogInformation("[SharpModMenu:DEBUG] " + message, args);
+	}
+
+	private void LoadDataFiles()
+	{
+		try
+		{
+			var moduleDirectory = Path.GetDirectoryName(ModulePath);
+			var pluginDirectory = string.IsNullOrWhiteSpace(moduleDirectory) ? AppContext.BaseDirectory : moduleDirectory;
+			var dataDirectories = ResolveDataDirectories(pluginDirectory);
+
+			ConfigPath = ResolveDataFilePath(dataDirectories, SupportedConfigFileNames, PrimaryConfigFileName, out var configProbePaths);
+			TranslationsPath = ResolveDataFilePath(dataDirectories, SupportedTranslationsFileNames, PrimaryTranslationsFileName, out var translationsProbePaths);
+
+			EnsureConfigFileExists(ConfigPath);
+			EnsureTranslationsFileExists(TranslationsPath);
+
+			var configText = File.ReadAllText(ConfigPath);
+			PluginConfig = JsonSerializer.Deserialize<SharpModMenuPluginConfig>(configText, JsonOptions) ?? new();
+			RuntimeOptions = BuildRuntimeOptions(PluginConfig);
+			Translations = LoadTranslations(TranslationsPath);
+
+			Logger.LogInformation("SharpModMenu loaded config from {ConfigPath} and translations from {TranslationsPath}.",
+				ConfigPath,
+				TranslationsPath);
+			LogDebug("Data directories: {Directories}", string.Join(" | ", dataDirectories));
+			LogDebug("Config probes: {ProbePaths}", string.Join(" | ", configProbePaths));
+			LogDebug("Translations probes: {ProbePaths}", string.Join(" | ", translationsProbePaths));
+			LogDebug("Runtime options: DefaultPos=({PosX},{PosY}) Font={FontName} FontSize={FontSize}",
+				RuntimeOptions.DefaultMenuPosition.X,
+				RuntimeOptions.DefaultMenuPosition.Y,
+				RuntimeOptions.WorldTextFontName,
+				RuntimeOptions.WorldTextFontSize);
+		}
+		catch (Exception ex)
+		{
+			Logger.LogWarning(ex, "Failed to load SharpModMenu config/translations. Using defaults.");
+			PluginConfig = new();
+			RuntimeOptions = SharpModMenuRuntimeOptions.Default;
+			Translations = SharpModMenuTranslations.Default;
+		}
+	}
+
+	private List<string> ResolveDataDirectories(string pluginDirectory)
+	{
+		var directories = new List<string>();
+		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+		void AddDirectory(string? directory)
+		{
+			if (string.IsNullOrWhiteSpace(directory))
+			{
+				return;
+			}
+
+			try
+			{
+				var fullPath = Path.GetFullPath(directory);
+				if (seen.Add(fullPath))
+				{
+					directories.Add(fullPath);
+				}
+			}
+			catch
+			{
+				// Ignore invalid path candidates.
+			}
+		}
+
+		// Prefer configs/plugins folders first.
+		if (!string.IsNullOrWhiteSpace(Server.GameDirectory))
+		{
+			var configRoot = Path.Combine(Server.GameDirectory, "csgo", "addons", "counterstrikesharp", "configs", "plugins");
+			foreach (var configDirectoryName in ConfigDirectoryNames)
+			{
+				AddDirectory(Path.Combine(configRoot, configDirectoryName));
+			}
+
+			var sharedRoot = Path.Combine(Server.GameDirectory, "csgo", "addons", "counterstrikesharp", "shared");
+			foreach (var sharedDirectoryName in SharedDirectoryNames)
+			{
+				AddDirectory(Path.Combine(sharedRoot, sharedDirectoryName));
+			}
+		}
+
+		try
+		{
+			var pluginDirInfo = new DirectoryInfo(pluginDirectory);
+			var pluginsDirectory = pluginDirInfo.Parent;
+			var cssRootDirectory = pluginsDirectory?.Parent;
+			if (pluginsDirectory is not null &&
+				cssRootDirectory is not null &&
+				string.Equals(pluginsDirectory.Name, "plugins", StringComparison.OrdinalIgnoreCase))
+			{
+				foreach (var configDirectoryName in ConfigDirectoryNames)
+				{
+					AddDirectory(Path.Combine(cssRootDirectory.FullName, "configs", "plugins", configDirectoryName));
+				}
+
+				foreach (var sharedDirectoryName in SharedDirectoryNames)
+				{
+					AddDirectory(Path.Combine(cssRootDirectory.FullName, "shared", sharedDirectoryName));
+				}
+			}
+		}
+		catch
+		{
+			// Ignore relative parsing failures and keep other candidates.
+		}
+
+		// Fallbacks.
+		AddDirectory(pluginDirectory);
+		AddDirectory(AppContext.BaseDirectory);
+
+		if (directories.Count == 0)
+		{
+			directories.Add(AppContext.BaseDirectory);
+		}
+
+		return directories;
+	}
+
+	private static string ResolveDataFilePath(
+		IReadOnlyList<string> dataDirectories,
+		IReadOnlyList<string> candidateFileNames,
+		string fallbackFileName,
+		out string[] probePaths)
+	{
+		var normalizedDirectories = new List<string>();
+		var seenDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+		foreach (var directory in dataDirectories)
+		{
+			if (string.IsNullOrWhiteSpace(directory))
+			{
+				continue;
+			}
+
+			try
+			{
+				var fullPath = Path.GetFullPath(directory);
+				if (!seenDirectories.Add(fullPath))
+				{
+					continue;
+				}
+
+				Directory.CreateDirectory(fullPath);
+				normalizedDirectories.Add(fullPath);
+			}
+			catch
+			{
+				// Ignore invalid path candidates.
+			}
+		}
+
+		if (normalizedDirectories.Count == 0)
+		{
+			var fallbackDirectory = Path.GetFullPath(AppContext.BaseDirectory);
+			Directory.CreateDirectory(fallbackDirectory);
+			normalizedDirectories.Add(fallbackDirectory);
+		}
+
+		var preferredDirectory = normalizedDirectories[0];
+		var preferredPath = Path.Combine(preferredDirectory, fallbackFileName);
+
+		var candidates = new List<(string path, int priority)>();
+		int priority = 0;
+
+		foreach (var directory in normalizedDirectories)
+		{
+			foreach (var fileName in candidateFileNames)
+			{
+				candidates.Add((Path.Combine(directory, fileName), priority++));
+			}
+		}
+
+		probePaths = candidates.Select(x => x.path).ToArray();
+
+		string? bestPath = null;
+		DateTime bestWriteTime = DateTime.MinValue;
+		int bestPriority = int.MaxValue;
+
+		foreach (var candidate in candidates)
+		{
+			if (!File.Exists(candidate.path))
+			{
+				continue;
+			}
+
+			DateTime lastWrite;
+			try
+			{
+				lastWrite = File.GetLastWriteTimeUtc(candidate.path);
+			}
+			catch
+			{
+				lastWrite = DateTime.MinValue;
+			}
+
+			if (bestPath is null ||
+				lastWrite > bestWriteTime ||
+				(lastWrite == bestWriteTime && candidate.priority < bestPriority))
+			{
+				bestPath = candidate.path;
+				bestWriteTime = lastWrite;
+				bestPriority = candidate.priority;
+			}
+		}
+
+		if (File.Exists(preferredPath))
+		{
+			return preferredPath;
+		}
+
+		if (bestPath is not null &&
+			!string.Equals(bestPath, preferredPath, StringComparison.OrdinalIgnoreCase))
+		{
+			try
+			{
+				File.Copy(bestPath, preferredPath, overwrite: true);
+				return preferredPath;
+			}
+			catch
+			{
+				// Keep legacy file path if migration copy fails.
+				return bestPath;
+			}
+		}
+
+		return preferredPath;
+	}
+
+	private static void EnsureConfigFileExists(string path)
+	{
+		if (File.Exists(path))
+		{
+			return;
+		}
+
+		var defaultConfig = @"{
+	/* SharpModMenu config */
+
+	// Verbose debug logs in server console
+	""Debug"": false,
+
+	// Default menu position for players (3D/HTML fallback)
+	""DefaultMenuPositionX"": -6.55,
+	""DefaultMenuPositionY"": 0.0,
+
+	// 3D menu text style
+	""WorldTextFontName"": ""Tahoma Bold"",
+	""WorldTextFontSize"": 25,
+	""WorldTextHighlightColor"": ""#7FFFFF40"",
+	""WorldTextForegroundColor"": ""#E79827"",
+	""WorldTextBackgroundTextColor"": ""#FFFFFF"",
+	""WorldTextPanelColor"": ""#C87F7F7F"",
+
+	// HTML fallback colors
+	""HtmlForegroundHighlightColor"": ""#EFCE21"",
+	""HtmlForegroundColor"": ""#FFFFFF"",
+	""HtmlBackgroundHighlightColor"": ""#EFE472"",
+	""HtmlBackgroundColor"": ""#E7CCA5"",
+	""HtmlEmptyLineColor"": ""#000"",
+
+	// Freeze player movement while menu is open in WASD mode
+	""FreezePlayerMovement"": true,
+
+	// Icon shown around each selectable option
+	""SelectorIcon"": ""\u279C"",
+	""SelectorIconColor"": ""#EFCE21"",
+
+	""HtmlFontClass"": ""fontSize-m"",
+
+
+	// Message shown in compact footer mode (when HtmlFontClass is bigger than fontSize-s)
+	// Leave empty to use translated defaults.
+	""HtmlCompactFooterMessage"": ""<font color='#D10D0D'>Select: </font><font color='#F2A10F'>ZS/Use</font> <font color='#FFFFFF'>|</font> <font color='#D10D0D'>Exit:</font> <font color='#F2A10F'>Reload</font>"",
+
+	// Optional font class for compact footer message only (example: fontSize-xs, fontSize-s, fontSize-m)
+	""HtmlCompactFooterFontClass"": ""fontSize-s"",
+
+	// In WASD mode, pressing movement key beyond first/last item changes page automatically.
+	// AZERTY example: Z at top goes to previous page, S at bottom goes to next page.
+	""WasdAutoPage"": true
+}";
+
+		File.WriteAllText(path, defaultConfig);
+	}
+
+	private static void EnsureTranslationsFileExists(string path)
+	{
+		if (File.Exists(path))
+		{
+			return;
+		}
+
+		var defaultTranslations = @"{
+	/* SharpModMenu translations */
+	""DefaultLanguage"": ""en"",
+	""Languages"": {
+		""en"": {
+			""nav.previous"": ""Previous"",
+			""nav.back"": ""Back"",
+			""nav.next"": ""Next"",
+			""nav.close"": ""Close"",
+			""nav.exit"": ""Close"",
+			""nav.compact_message"": ""Use 8 Previous | 9 Next | 0 Close""
+		},
+		""fr"": {
+			""nav.previous"": ""Precedent"",
+			""nav.back"": ""Retour"",
+			""nav.next"": ""Suivant"",
+			""nav.close"": ""Fermer"",
+			""nav.exit"": ""Fermer"",
+			""nav.compact_message"": ""Utilise 8 Precedent | 9 Suivant | 0 Fermer""
+		}
+	}
+}";
+
+		File.WriteAllText(path, defaultTranslations);
+	}
+
+	private SharpModMenuRuntimeOptions BuildRuntimeOptions(SharpModMenuPluginConfig config)
+	{
+		var options = new SharpModMenuRuntimeOptions
+		{
+			Debug = config.Debug,
+			DefaultMenuPosition = new(
+				SanitizeFiniteFloat(config.DefaultMenuPositionX, -6.55f),
+				SanitizeFiniteFloat(config.DefaultMenuPositionY, 0.0f)),
+			WorldTextFontName = string.IsNullOrWhiteSpace(config.WorldTextFontName) ? "Tahoma Bold" : config.WorldTextFontName.Trim(),
+			WorldTextFontSize = Math.Clamp(config.WorldTextFontSize, 8, 72),
+			HtmlForegroundHighlightColor = NormalizeHtmlColor(config.HtmlForegroundHighlightColor, "#EFCE21"),
+			HtmlForegroundColor = NormalizeHtmlColor(config.HtmlForegroundColor, "#E28B12"),
+			HtmlBackgroundHighlightColor = NormalizeHtmlColor(config.HtmlBackgroundHighlightColor, "#EFE472"),
+			HtmlBackgroundColor = NormalizeHtmlColor(config.HtmlBackgroundColor, "#E7CCA5"),
+			HtmlEmptyLineColor = NormalizeHtmlColor(config.HtmlEmptyLineColor, "#000"),
+			FreezePlayerMovement = config.FreezePlayerMovement,
+			SelectorIcon = string.IsNullOrWhiteSpace(config.SelectorIcon) ? "\u279C" : config.SelectorIcon.Trim(),
+			SelectorIconColor = NormalizeHtmlColor(config.SelectorIconColor, "#EFCE21"),
+			HtmlFontClass = string.IsNullOrWhiteSpace(config.HtmlFontClass) ? "fontSize-s" : config.HtmlFontClass.Trim(),
+			HtmlCompactFooterMessage = config.HtmlCompactFooterMessage?.Trim() ?? string.Empty,
+			HtmlCompactFooterFontClass = config.HtmlCompactFooterFontClass?.Trim() ?? string.Empty,
+			WasdAutoPage = config.WasdAutoPage,
+		};
+
+		options.WorldTextHighlightColor = ParseColorOrDefault(config.WorldTextHighlightColor, options.WorldTextHighlightColor);
+		options.WorldTextForegroundColor = ParseColorOrDefault(config.WorldTextForegroundColor, options.WorldTextForegroundColor);
+		options.WorldTextBackgroundTextColor = ParseColorOrDefault(config.WorldTextBackgroundTextColor, options.WorldTextBackgroundTextColor);
+		options.WorldTextPanelColor = ParseColorOrDefault(config.WorldTextPanelColor, options.WorldTextPanelColor);
+
+		return options;
+	}
+
+	private SharpModMenuTranslations LoadTranslations(string path)
+	{
+		try
+		{
+			var translationsText = File.ReadAllText(path);
+			var parsed = JsonSerializer.Deserialize<SharpModMenuTranslationFile>(translationsText, JsonOptions);
+			if (parsed is null || parsed.Languages.Count == 0)
+			{
+				return SharpModMenuTranslations.Default;
+			}
+
+			var normalizedLanguages = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+			foreach (var languageEntry in parsed.Languages)
+			{
+				var normalizedLanguage = NormalizeLanguageTag(languageEntry.Key);
+				if (normalizedLanguage is null)
+				{
+					continue;
+				}
+
+				var normalizedEntries = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+				foreach (var keyValue in languageEntry.Value)
+				{
+					if (string.IsNullOrWhiteSpace(keyValue.Key))
+					{
+						continue;
+					}
+
+					normalizedEntries[keyValue.Key.Trim()] = keyValue.Value ?? string.Empty;
+				}
+
+				normalizedLanguages[normalizedLanguage] = normalizedEntries;
+			}
+
+			if (normalizedLanguages.Count == 0)
+			{
+				return SharpModMenuTranslations.Default;
+			}
+
+			var defaultLanguage = NormalizeLanguageTag(parsed.DefaultLanguage) ?? "en";
+			return new SharpModMenuTranslations(defaultLanguage, normalizedLanguages);
+		}
+		catch (Exception ex)
+		{
+			Logger.LogWarning(ex, "Failed to parse SharpModMenu translations file {TranslationsPath}. Using defaults.", path);
+			return SharpModMenuTranslations.Default;
+		}
+	}
+
+	private static string? NormalizeLanguageTag(string? languageTag)
+	{
+		if (string.IsNullOrWhiteSpace(languageTag))
+		{
+			return null;
+		}
+
+		return languageTag.Trim().Replace('_', '-').ToLowerInvariant();
+	}
+
+	private static float SanitizeFiniteFloat(float value, float fallback)
+	{
+		return float.IsFinite(value) ? value : fallback;
+	}
+
+	private static string NormalizeHtmlColor(string value, string fallback)
+	{
+		if (!TryParseHexColor(value, out var parsed))
+		{
+			return fallback;
+		}
+
+		return parsed.A == 255
+			? $"#{parsed.R:X2}{parsed.G:X2}{parsed.B:X2}"
+			: $"#{parsed.A:X2}{parsed.R:X2}{parsed.G:X2}{parsed.B:X2}";
+	}
+
+	private static Color ParseColorOrDefault(string value, Color fallback)
+	{
+		return TryParseHexColor(value, out var parsed) ? parsed : fallback;
+	}
+
+	private static bool TryParseHexColor(string value, out Color color)
+	{
+		color = default;
+		if (string.IsNullOrWhiteSpace(value))
+		{
+			return false;
+		}
+
+		var normalized = value.Trim();
+		if (normalized.StartsWith('#'))
+		{
+			normalized = normalized[1..];
+		}
+		else if (normalized.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+		{
+			normalized = normalized[2..];
+		}
+
+		if (normalized.Length == 6 && uint.TryParse(normalized, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var rgb))
+		{
+			var r = (byte)((rgb >> 16) & 0xFF);
+			var g = (byte)((rgb >> 8) & 0xFF);
+			var b = (byte)(rgb & 0xFF);
+			color = Color.FromArgb(r, g, b);
+			return true;
+		}
+
+		if (normalized.Length == 8 && uint.TryParse(normalized, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var argb))
+		{
+			var a = (byte)((argb >> 24) & 0xFF);
+			var r = (byte)((argb >> 16) & 0xFF);
+			var g = (byte)((argb >> 8) & 0xFF);
+			var b = (byte)(argb & 0xFF);
+			color = Color.FromArgb(a, r, g, b);
+			return true;
+		}
+
+		return false;
 	}
 
 	public override void Unload(bool hotReload)
@@ -70,28 +580,8 @@ public sealed class SharpModMenuPlugin : BasePlugin
 		ProcessUserCmdsFunc?.Unhook(ProcessUserCmds, HookMode.Pre);
 	}
 
-	// thanks to Deana for this snippet
-	private CCSGameRules? GameRulesEnt { get; set; }
-	private bool LoadedGameRules { get; set; }
-
-	private void OnMapStartHandler(string map)
-	{
-		GameRulesEnt = null;
-		LoadedGameRules = false;
-	}
-
 	private void OnTick()
 	{
-		if (!LoadedGameRules)
-		{
-			LoadedGameRules = true;
-			GameRulesEnt = Utilities.FindAllEntitiesByDesignerName<CCSGameRulesProxy>("cs_gamerules").FirstOrDefault()?.GameRules;
-		}
-		else if (GameRulesEnt is not null)
-		{
-			GameRulesEnt.GameRestart = GameRulesEnt.RestartRoundTime < Server.CurrentTime;
-		}
-
 		if (UseFallbackWasdInputMethod)
 		{
 			for (int i = 0; i < DriverInstance!.ActiveMenuStates.Count; i++)
@@ -496,6 +986,19 @@ public sealed class SharpModMenuPlugin : BasePlugin
 		};
 
 		menuState.HandleInput(key, info.CallingContext == CommandCallingContext.Console);
+	}
+
+	[ConsoleCommand("css_sharpmodmenu_reload")]
+	public void SharpModMenuReload(CCSPlayerController? _, CommandInfo info)
+	{
+		LoadDataFiles();
+		if (DriverInstance is not null)
+		{
+			DriverInstance.UpdateRuntimeData(RuntimeOptions, Translations);
+			DriverInstance.ForceRefreshAll();
+		}
+
+		info.ReplyToCommand($"SharpModMenu reloaded. config={ConfigPath} translations={TranslationsPath} HtmlFontClass={RuntimeOptions.HtmlFontClass} HtmlCompactFooterFontClass={RuntimeOptions.HtmlCompactFooterFontClass} FreezePlayerMovement={RuntimeOptions.FreezePlayerMovement} WasdAutoPage={RuntimeOptions.WasdAutoPage}");
 	}
 
 	[ConsoleCommand("css_sharpmodmenu_pos_x")]

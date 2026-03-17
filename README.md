@@ -4,6 +4,20 @@ A native CSSUniversalMenuAPI implementation, mirroring the behavior of SourceMod
 
 https://www.youtube.com/watch?v=Be7qop6pVpI
 
+## Build / Package
+
+From the repo root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\compile.ps1
+```
+
+Output:
+
+- `compiled/counterstrikesharp/plugins/SharpModMenu`
+- `compiled/counterstrikesharp/shared/SharpModMenu`
+- `compiled/counterstrikesharp/shared/CSSUniversalMenuAPI`
+
 When number keys are bound with the following snippet, automatically detected and the menu will look like it used to in CSS and CS:GO:
 
 ```
@@ -39,6 +53,56 @@ a CenterHtmlMenu for that free roaming player.
 ![](./docs/CenterHtmlFallbackCropped.png)
 
 Many thanks to [@T3Marius's CS2ScreenMenuAPI](https://github.com/T3Marius/CS2ScreenMenuAPI) for acting as reference when it comes to using the point_worldtext entity.
+
+## Configuration
+
+SharpModMenu can be customized with:
+
+- `sharpmodmenu_config.jsonc`
+- `sharpmodmenu_translations.jsonc`
+
+These files are read from the plugin folder (`addons/counterstrikesharp/plugins/SharpModMenu`).
+Compatibility names are also supported:
+
+- `menu_config.jsonc`
+- `menu_translations.jsonc`
+
+Lookup order now prefers `addons/counterstrikesharp/shared/SharpModMenu` first (for both canonical and compatibility names), then falls back to `plugins/SharpModMenu`.
+If multiple matching files exist, the most recently modified file is selected.
+
+For larger HTML font classes (anything different from `fontSize-s`), the menu uses a compact footer line.
+You can customize that line with:
+
+- `HtmlCompactFooterMessage` (in config), or
+- `nav.compact_message` (in translations).
+- `HtmlCompactFooterFontClass` (in config) to change size only for that footer line.
+
+WASD navigation can auto-change pages at list boundaries:
+
+- `WasdAutoPage: true` (default): moving past the first/last item switches page.
+- `WasdAutoPage: false`: keep classic behavior and use navigation entries/buttons.
+
+Selectable entries are rendered with selector icons instead of numeric prefixes:
+
+- `SelectorIcon` (default `➜`)
+- `SelectorIconColor` (HTML color for that icon)
+
+Movement freeze while menu is open (WASD mode):
+
+- `FreezePlayerMovement: true` (default): sets player `MoveType` to `NONE` while menu is open, then restores previous move type on close.
+
+Reload live with:
+
+```
+css_sharpmodmenu_reload
+```
+
+Player position tuning:
+
+```
+css_sharpmodmenu_pos_x <value>
+css_sharpmodmenu_pos_y <value>
+```
 
 <!--
 

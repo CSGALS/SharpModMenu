@@ -11,9 +11,36 @@ namespace SharpModMenu;
 
 internal sealed class MenuDriver : IMenuAPI
 {
+	public SharpModMenuRuntimeOptions Options { get; private set; }
+	private SharpModMenuTranslations Translations { get; set; }
 	private Dictionary<ulong, PlayerMenuState> MenuStates = new();
 	public List<(CBaseEntity ent, CCSPlayerController target)> MenuEntities { get; } = new();
 	public List<PlayerMenuState> ActiveMenuStates { get; } = new();
+
+	public MenuDriver(SharpModMenuRuntimeOptions options, SharpModMenuTranslations translations)
+	{
+		Options = options;
+		Translations = translations;
+	}
+
+	public void UpdateRuntimeData(SharpModMenuRuntimeOptions options, SharpModMenuTranslations translations)
+	{
+		Options = options;
+		Translations = translations;
+	}
+
+	public string Translate(CCSPlayerController player, string key, string fallback)
+	{
+		return Translations.Translate(player, key, fallback);
+	}
+
+	public void ForceRefreshAll()
+	{
+		foreach (var state in MenuStates.Values)
+		{
+			state.ForceRefresh = true;
+		}
+	}
 
 	internal PlayerMenuState GetMenuState(CCSPlayerController player, bool create = false)
 	{
@@ -22,6 +49,7 @@ internal sealed class MenuDriver : IMenuAPI
 			if (!create)
 				return new() { Player = player, Driver = this }; // throw a menu state into the ether
 			MenuStates.Add(player.SteamID, menuState = new() { Player = player, Driver = this });
+			menuState.MenuPosition = Options.DefaultMenuPosition;
 		}
 		return menuState;
 	}
