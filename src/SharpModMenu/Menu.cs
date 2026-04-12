@@ -39,28 +39,21 @@ internal class Menu : IMenu, IMenuPriorityExtension, INavigateBackMenuExtension
 	{
 		get
 		{
-			var itemsVisible = Math.Min(ItemsPerPage, Items.Count - (CurrentPage * ItemsPerPage));
+			var itemsVisible = Math.Max(0, Math.Min(ItemsPerPage, Items.Count - (CurrentPage * ItemsPerPage)));
+			var maxItemIndex = Math.Max(0, itemsVisible - 1);
 			var buttonStates = GetButtonStates();
 
 			if (SelectionIndex > 8 && buttonStates.ShowNextButton)
 				return 8;
 			if (SelectionIndex > 7 && (buttonStates.ShowBackButton || buttonStates.ShowPrevButton))
 				return 7;
-			if (SelectionIndex > itemsVisible - 1)
-				return itemsVisible - 1;
+			if (SelectionIndex > maxItemIndex)
+				return maxItemIndex;
 			if (SelectionIndex > 0)
 				return SelectionIndex - 1;
 
 			if (SelectionIndex == 0)
 			{
-				if (buttonStates.ShowExitButton)
-					return 9;
-				if (buttonStates.ShowNextButton)
-					return 8;
-				if (buttonStates.ShowBackButton || buttonStates.ShowPrevButton)
-					return 7;
-				if (itemsVisible > 0)
-					return itemsVisible - 1;
 				return SelectionIndex;
 			}
 
@@ -71,10 +64,11 @@ internal class Menu : IMenu, IMenuPriorityExtension, INavigateBackMenuExtension
 	{
 		get
 		{
-			var itemsVisible = Math.Min(ItemsPerPage, Items.Count - (CurrentPage * ItemsPerPage));
+			var itemsVisible = Math.Max(0, Math.Min(ItemsPerPage, Items.Count - (CurrentPage * ItemsPerPage)));
+			var maxItemIndex = Math.Max(0, itemsVisible - 1);
 			var buttonStates = GetButtonStates();
 
-			if (SelectionIndex < itemsVisible - 1)
+			if (SelectionIndex < maxItemIndex)
 				return SelectionIndex + 1;
 			if (SelectionIndex < 7 && (buttonStates.ShowBackButton || buttonStates.ShowPrevButton))
 				return 7;
@@ -85,14 +79,6 @@ internal class Menu : IMenu, IMenuPriorityExtension, INavigateBackMenuExtension
 
 			if (SelectionIndex == 9)
 			{
-				if (itemsVisible > 0)
-					return 0;
-				if (buttonStates.ShowBackButton || buttonStates.ShowPrevButton)
-					return 7;
-				if (buttonStates.ShowNextButton)
-					return 8;
-				if (buttonStates.ShowExitButton)
-					return 9;
 				return SelectionIndex;
 			}
 

@@ -51,6 +51,11 @@ internal class PlayerMenuState : IDisposable
 	private bool _movementFrozen;
 	private bool _hasPreviousMoveType;
 	private MoveType_t _previousMoveType = MoveType_t.MOVETYPE_WALK;
+	private readonly Dictionary<string, int> _selectionIndexByMenuKey = new(StringComparer.Ordinal);
+	private bool _pendingHtmlClear;
+	private int _pendingHtmlClearGeneration;
+	private const int HtmlClearDelayTicks = 32;
+	private const int HtmlDisplayDurationTicks = 64;
 
 	public void HandleInput(PlayerKey key, bool fromBind)
 	{
@@ -71,10 +76,14 @@ internal class PlayerMenuState : IDisposable
 			case >= PlayerKey.SelectItem1 and <= PlayerKey.SelectItem7:
 				int index = key - PlayerKey.SelectItem1;
 				if ((itemsStart + index) < CurrentMenu.Items.Count && CurrentMenu.Items[itemsStart + index] is MenuItem { Enabled: true } menuItem)
+				{
+					CurrentMenu.SelectionIndex = index;
+					RememberCurrentSelection(CurrentMenu);
 					menuItem.RaiseSelected();
+					RememberCurrentSelection(CurrentMenu);
+				}
 				break;
 			case PlayerKey.SelectItem8:
-			case PlayerKey.Left:
 				if (buttonState.ShowPrevButton)
 				{
 					CurrentMenu.CurrentPage--;
@@ -89,14 +98,17 @@ internal class PlayerMenuState : IDisposable
 						CurrentMenu.Close();
 				}
 				break;
+			case PlayerKey.Left:
+				break;
 			case PlayerKey.SelectItem9:
-			case PlayerKey.Right:
 				if (buttonState.ShowNextButton)
 				{
 					CurrentMenu.CurrentPage++;
 					CurrentMenu.IsDirty = true;
 					Refresh(sortPriorities: false);
 				}
+				break;
+			case PlayerKey.Right:
 				break;
 			case PlayerKey.SelectItem0:
 			case PlayerKey.Close:
@@ -112,6 +124,7 @@ internal class PlayerMenuState : IDisposable
 				}
 
 				CurrentMenu.SelectionIndex = CurrentMenu.PrevSelectionIndex;
+				RememberCurrentSelection(CurrentMenu);
 				CurrentMenu.IsDirty = true;
 				Refresh(sortPriorities: false);
 				break;
@@ -124,6 +137,7 @@ internal class PlayerMenuState : IDisposable
 				}
 
 				CurrentMenu.SelectionIndex = CurrentMenu.NextSelectionIndex;
+				RememberCurrentSelection(CurrentMenu);
 				CurrentMenu.IsDirty = true;
 				Refresh(sortPriorities: false);
 				break;
@@ -134,11 +148,15 @@ internal class PlayerMenuState : IDisposable
 					(itemsStart + selectedIndex) < CurrentMenu.Items.Count;
 
 				if (hoveringItem && CurrentMenu.Items[itemsStart + selectedIndex] is MenuItem { Enabled: true } selectedMenuItem)
+				{
+					RememberCurrentSelection(CurrentMenu);
 					selectedMenuItem.RaiseSelected();
+					RememberCurrentSelection(CurrentMenu);
+				}
 				else if (selectedIndex == 7)
-					goto case PlayerKey.Left;
+					goto case PlayerKey.SelectItem8;
 				else if (selectedIndex == 8)
-					goto case PlayerKey.Right;
+					goto case PlayerKey.SelectItem9;
 				else if (selectedIndex == 9)
 					goto case PlayerKey.Close;
 				break;
@@ -162,11 +180,13 @@ internal class PlayerMenuState : IDisposable
 			CurrentMenu.SelectionIndex == 0 &&
 			buttonState.ShowPrevButton)
 		{
+			var currentSelectionIndex = CurrentMenu.SelectionIndex;
 			CurrentMenu.CurrentPage--;
 			var prevPageStart = CurrentMenu.CurrentPage * Menu.ItemsPerPage;
 			var prevPageRemaining = CurrentMenu.Items.Count - prevPageStart;
 			var prevPageItemsVisible = Math.Min(Menu.ItemsPerPage, Math.Max(0, prevPageRemaining));
-			CurrentMenu.SelectionIndex = Math.Max(0, prevPageItemsVisible - 1);
+			CurrentMenu.SelectionIndex = Math.Min(currentSelectionIndex, Math.Max(0, prevPageItemsVisible - 1));
+			RememberCurrentSelection(CurrentMenu);
 			CurrentMenu.IsDirty = true;
 			Refresh(sortPriorities: false);
 			return true;
@@ -176,8 +196,13 @@ internal class PlayerMenuState : IDisposable
 			CurrentMenu.SelectionIndex == itemsVisible - 1 &&
 			buttonState.ShowNextButton)
 		{
+			var currentSelectionIndex = CurrentMenu.SelectionIndex;
 			CurrentMenu.CurrentPage++;
-			CurrentMenu.SelectionIndex = 0;
+			var nextPageStart = CurrentMenu.CurrentPage * Menu.ItemsPerPage;
+			var nextPageRemaining = CurrentMenu.Items.Count - nextPageStart;
+			var nextPageItemsVisible = Math.Min(Menu.ItemsPerPage, Math.Max(0, nextPageRemaining));
+			CurrentMenu.SelectionIndex = Math.Min(currentSelectionIndex, Math.Max(0, nextPageItemsVisible - 1));
+			RememberCurrentSelection(CurrentMenu);
 			CurrentMenu.IsDirty = true;
 			Refresh(sortPriorities: false);
 			return true;
@@ -197,16 +222,15 @@ internal class PlayerMenuState : IDisposable
 				return;
 			_MenuActive = value;
 			if (value)
+			{
+				CancelPendingHtmlClear();
 				Driver.ActiveMenuStates.Add(this);
+			}
 			else
 			{
 				Driver.ActiveMenuStates.Remove(this);
 				if (ShowingHtmlContent)
-				{
-					ShowingHtmlContent = false;
-					Player.PrintToCenterHtml(HtmlContent ?? "<font></font>", 0);
-					HtmlContent = null;
-				}
+					QueueHtmlClear();
 				SetMovementFrozen(false);
 			}
 		}
@@ -237,6 +261,8 @@ internal class PlayerMenuState : IDisposable
 		}
 
 		CurrentMenu = FocusStack.Count > 0 ? FocusStack[0] : null;
+		if (CurrentMenu is not null)
+			TryApplyRememberedSelection(CurrentMenu);
 		MenuActive = CurrentMenu is not null;
 
 		if (CreateInitialInvisibleWorldTextEntity())
@@ -264,7 +290,112 @@ internal class PlayerMenuState : IDisposable
 	public void Dispose()
 	{
 		DestroyEntities();
+		ClearHtmlNow();
+		_selectionIndexByMenuKey.Clear();
 		MenuActive = false; // force the removal of this menu from the active menus
+	}
+
+	private void RememberCurrentSelection(Menu? menu)
+	{
+		if (menu is null)
+			return;
+
+		var visibleItems = GetVisibleItemsInCurrentPage(menu);
+		if (visibleItems <= 0)
+			return;
+
+		var clampedIndex = Math.Clamp(menu.SelectionIndex, 0, visibleItems - 1);
+		_selectionIndexByMenuKey[BuildMenuSelectionKey(menu)] = clampedIndex;
+	}
+
+	private bool TryApplyRememberedSelection(Menu? menu)
+	{
+		if (menu is null)
+			return false;
+
+		var menuKey = BuildMenuSelectionKey(menu);
+		if (string.IsNullOrEmpty(menuKey))
+			return false;
+
+		if (!_selectionIndexByMenuKey.TryGetValue(menuKey, out var rememberedIndex))
+			return false;
+
+		var visibleItems = GetVisibleItemsInCurrentPage(menu);
+		if (visibleItems <= 0)
+			return false;
+
+		var clampedIndex = Math.Clamp(rememberedIndex, 0, visibleItems - 1);
+		var changed = menu.SelectionIndex != clampedIndex;
+		menu.SelectionIndex = clampedIndex;
+		if (changed)
+			menu.IsDirty = true;
+		return changed;
+	}
+
+	private static int GetVisibleItemsInCurrentPage(Menu? menu)
+	{
+		if (menu is null)
+			return 0;
+
+		var itemsStart = menu.CurrentPage * Menu.ItemsPerPage;
+		var itemsRemaining = menu.Items.Count - itemsStart;
+		return Math.Max(0, Math.Min(Menu.ItemsPerPage, itemsRemaining));
+	}
+
+	private static string BuildMenuSelectionKey(Menu? menu)
+	{
+		if (menu is null)
+			return string.Empty;
+
+		var sb = new StringBuilder();
+		for (int i = 0; i < menu.Parents.Count; i++)
+		{
+			if (i > 0)
+				sb.Append('\u001F');
+			sb.Append(menu.Parents[i].Title);
+		}
+
+		if (sb.Length > 0)
+			sb.Append('\u001F');
+		sb.Append(menu.Title);
+		return sb.ToString();
+	}
+
+	private void QueueHtmlClear()
+	{
+		_pendingHtmlClear = true;
+		var clearGeneration = ++_pendingHtmlClearGeneration;
+
+		Server.RunOnTick(Server.TickCount + HtmlClearDelayTicks, () =>
+		{
+			if (!_pendingHtmlClear || _pendingHtmlClearGeneration != clearGeneration)
+				return;
+
+			if (CurrentMenu is null)
+				ClearHtmlNow();
+			else
+				CancelPendingHtmlClear();
+		});
+	}
+
+	private void CancelPendingHtmlClear()
+	{
+		_pendingHtmlClear = false;
+		_pendingHtmlClearGeneration++;
+	}
+
+	private void ClearHtmlNow()
+	{
+		if (!ShowingHtmlContent && HtmlContent is null)
+		{
+			CancelPendingHtmlClear();
+			return;
+		}
+
+		ShowingHtmlContent = false;
+		Player.PrintToCenterHtml(HtmlContent ?? "<font></font>", 0);
+		HtmlContent = null;
+		CancelPendingHtmlClear();
 	}
 
 	private CPointWorldText? HighlightText { get; set; }
@@ -743,14 +874,7 @@ internal class PlayerMenuState : IDisposable
 
 	private bool ShouldFreezePlayerMovement()
 	{
-		if (!Driver.Options.FreezePlayerMovement)
-			return false;
-
 		if (CurrentMenu is null)
-			return false;
-
-		// Keep native keybind behavior untouched (players can still move if they use numeric binds).
-		if (IsUsingKeybinds)
 			return false;
 
 		if (!Player.IsValid || Player.IsBot)
@@ -814,17 +938,26 @@ internal class PlayerMenuState : IDisposable
 		if (PresentingHtml && HtmlContent is not null)
 		{
 			ShowingHtmlContent = true;
-			Player.PrintToCenterHtml(HtmlContent);
+			Player.PrintToCenterHtml(HtmlContent, HtmlDisplayDurationTicks);
 		}
 
 		var observerInfo = Player.GetObserverInfo();
 		CanUseKeybinds = observerInfo.Mode == ObserverMode.FirstPerson && observerInfo.Observing?.Index == Player.Pawn.Index;
 		UpdateMovementFreezeState();
 
+		var observerHandle = observerInfo.Observing?.Handle ?? nint.Zero;
+		bool observerChanged =
+			observerInfo.Mode != MenuCurrentObserverMode ||
+			observerHandle != MenuCurrentObserver;
+		if (observerChanged)
+		{
+			MenuCurrentObserverMode = observerInfo.Mode;
+			MenuCurrentObserver = observerHandle;
+		}
+
 		bool refresh =
 			ForceRefresh ||
-			observerInfo.Mode != MenuCurrentObserverMode ||
-			observerInfo.Observing?.Handle != MenuCurrentObserver;
+			(!PresentingHtml && observerChanged);
 
 		if (refresh)
 		{

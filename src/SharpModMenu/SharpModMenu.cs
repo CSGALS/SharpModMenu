@@ -30,6 +30,7 @@ public sealed class SharpModMenuPlugin : BasePlugin
 	public override string ModuleName => "SharpModMenu";
 	public override string ModuleDescription => "CSSUniversalMenuAPI menu driver to behave like SourceMod menus";
 	public override string ModuleVersion => Verlite.Version.Full;
+	private const string RuntimePatchMarker = "freeze-lock-2026-04-12-v2";
 
 	private const string PrimaryConfigFileName = "sharpmodmenu_config.jsonc";
 	private const string PrimaryTranslationsFileName = "sharpmodmenu_translations.jsonc";
@@ -65,6 +66,7 @@ public sealed class SharpModMenuPlugin : BasePlugin
 	{
 		LoadDataFiles();
 		DriverInstance = new(RuntimeOptions, Translations);
+		Logger.LogWarning("SharpModMenu patch marker: {PatchMarker}", RuntimePatchMarker);
 
 		// delay hooking ProcessUserCmds until CS2Fixes et al have had a chance to hook it
 		Server.NextWorldUpdate(() =>
@@ -362,7 +364,7 @@ public sealed class SharpModMenuPlugin : BasePlugin
 	""HtmlBackgroundColor"": ""#E7CCA5"",
 	""HtmlEmptyLineColor"": ""#000"",
 
-	// Freeze player movement while menu is open in WASD mode
+	// Freeze player movement while menu is open
 	""FreezePlayerMovement"": true,
 
 	// Icon shown around each selectable option
@@ -606,10 +608,6 @@ public sealed class SharpModMenuPlugin : BasePlugin
 						menuState.HandleInput(PlayerKey.Up, false);
 					if (pressingBack && pressingBack != menuState.WasPressingBack)
 						menuState.HandleInput(PlayerKey.Down, false);
-					if (pressingLeft && pressingLeft != menuState.WasPressingLeft)
-						menuState.HandleInput(PlayerKey.Left, false);
-					if (pressingRight && pressingRight != menuState.WasPressingRight)
-						menuState.HandleInput(PlayerKey.Right, false);
 					if (pressingUse && pressingUse != menuState.WasPressingUse)
 						menuState.HandleInput(PlayerKey.Select, false);
 					if (pressingTab && pressingTab != menuState.WasPressingTab)
@@ -753,6 +751,15 @@ public sealed class SharpModMenuPlugin : BasePlugin
 		Tab = 0x200000000,
 	}
 
+	private const ButtonsStateC MovementButtonsMask =
+		ButtonsStateC.Forward |
+		ButtonsStateC.Back |
+		ButtonsStateC.Left |
+		ButtonsStateC.Right |
+		ButtonsStateC.Jump |
+		ButtonsStateC.Crouch |
+		ButtonsStateC.Walk;
+
 	[StructLayout(LayoutKind.Sequential)]
 	private unsafe struct CInButtonStateReal
 	{
@@ -842,6 +849,7 @@ public sealed class SharpModMenuPlugin : BasePlugin
 		var pressingUse = false;
 		var pressingTab = false;
 		var pressingReload = false;
+		var freezePlayerMovement = true;
 
 		int? inhibitWeaponSelectionTick = menuState.InhibitWeaponSelection;
 		menuState.InhibitWeaponSelection = null;
@@ -876,17 +884,23 @@ public sealed class SharpModMenuPlugin : BasePlugin
 				Console.WriteLine(sb.ToString());
 			}
 
-			if (menuState.IsUsingKeybinds)
-			{
-				if (inhibitWeaponSelect)
-					cmd->Base->WeaponSelect = 0;
-			}
-			else
+			if (freezePlayerMovement || !menuState.IsUsingKeybinds)
 			{
 				cmd->Base->SideMove = 0.0f;
 				cmd->Base->ForwardMove = 0.0f;
 				cmd->Base->UpMove = 0.0f;
+			}
 
+			if (menuState.IsUsingKeybinds)
+			{
+				if (inhibitWeaponSelect)
+					cmd->Base->WeaponSelect = 0;
+
+				if (freezePlayerMovement && (nint)cmd->Base->Buttons != nint.Zero)
+					cmd->Base->Buttons->ButtonState3 &= ~MovementButtonsMask;
+			}
+			else
+			{
 				if ((nint)cmd->Base->Buttons != nint.Zero)
 				{
 					var buttons = cmd->Base->Buttons->ButtonState3;
@@ -911,10 +925,6 @@ public sealed class SharpModMenuPlugin : BasePlugin
 				menuState.HandleInput(PlayerKey.Up, false);
 			if (pressingBack && pressingBack != menuState.WasPressingBack)
 				menuState.HandleInput(PlayerKey.Down, false);
-			if (pressingLeft && pressingLeft != menuState.WasPressingLeft)
-				menuState.HandleInput(PlayerKey.Left, false);
-			if (pressingRight && pressingRight != menuState.WasPressingRight)
-				menuState.HandleInput(PlayerKey.Right, false);
 			if (pressingUse && pressingUse != menuState.WasPressingUse)
 				menuState.HandleInput(PlayerKey.Select, false);
 			if (pressingTab && pressingTab != menuState.WasPressingTab)

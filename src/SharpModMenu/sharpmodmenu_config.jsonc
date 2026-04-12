@@ -23,7 +23,7 @@
 	"HtmlBackgroundColor": "#E7CCA5",
 	"HtmlEmptyLineColor": "#000",
 
-	// Freeze player movement while menu is open in WASD mode
+	// Freeze player movement while menu is open
 	"FreezePlayerMovement": true,
 
 	// Icon shown around each selectable option

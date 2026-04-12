@@ -12,6 +12,12 @@ From the repo root:
 powershell -ExecutionPolicy Bypass -File .\compile.ps1
 ```
 
+Or on Windows:
+
+```bat
+.\compile.cmd
+```
+
 Output:
 
 - `compiled/counterstrikesharp/plugins/SharpModMenu`
@@ -87,7 +93,7 @@ Selectable entries are rendered with selector icons instead of numeric prefixes:
 - `SelectorIcon` (default `➜`)
 - `SelectorIconColor` (HTML color for that icon)
 
-Movement freeze while menu is open (WASD mode):
+Movement freeze while menu is open:
 
 - `FreezePlayerMovement: true` (default): sets player `MoveType` to `NONE` while menu is open, then restores previous move type on close.
 
@@ -110,3 +116,4 @@ TODO:
 - Sounds
 
 -->
+
