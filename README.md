@@ -88,6 +88,11 @@ WASD navigation can auto-change pages at list boundaries:
 - `WasdAutoPage: true` (default): moving past the first/last item switches page.
 - `WasdAutoPage: false`: keep classic behavior and use navigation entries/buttons.
 
+Input hook compatibility:
+
+- `ForceFallbackInput: false` (default): read input from the raw `ProcessUserCmds` hook.
+- `ForceFallbackInput: true`: skip that hook and use the fallback input reader. Enable this when another plugin, such as CS2AC, hooks `ProcessUserCmds` incompatibly.
+
 Selectable entries are rendered with selector icons instead of numeric prefixes:
 
 - `SelectorIcon` (default `➜`)
@@ -116,4 +121,3 @@ TODO:
 - Sounds
 
 -->
-

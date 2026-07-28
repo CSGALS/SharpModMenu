@@ -60,32 +60,61 @@ public sealed class SharpModMenuPlugin : BasePlugin
 		: "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 89 FB 48 83 EC ? 89 4D";
 	// void* FASTCALL ProcessUsercmds(CCSPlayerController* player, CUserCmdPB* cmds, int cmdCount, bool paused, float margin);
 	private static MemoryFunctionWithReturn<nint, nint, int, bool, float, nint, nint>? ProcessUserCmdsFunc { get; set; }
-	private bool UseFallbackWasdInputMethod { get; set; } = false;
+	private bool UseFallbackWasdInputMethod { get; set; }
+	private bool IsProcessUserCmdsHooked { get; set; }
 
 	public override void Load(bool hotReload)
 	{
 		LoadDataFiles();
+		UseFallbackWasdInputMethod = PluginConfig.ForceFallbackInput;
 		DriverInstance = new(RuntimeOptions, Translations);
 		Logger.LogWarning("SharpModMenu patch marker: {PatchMarker}", RuntimePatchMarker);
 
 		// delay hooking ProcessUserCmds until CS2Fixes et al have had a chance to hook it
-		Server.NextWorldUpdate(() =>
-		{
-			ProcessUserCmdsFunc ??= new(ProcessUserCmdsSig, Addresses.ServerPath);
-			if (ProcessUserCmdsFunc.Handle == nint.Zero)
-			{
-				Console.WriteLine($"SharpModMenu: Failed to hook ProcessUserCmds, using subpar fallback method");
-				UseFallbackWasdInputMethod = true;
-				return;
-			}
-
-			ProcessUserCmdsFunc.Hook(ProcessUserCmds, HookMode.Pre);
-		});
+		Server.NextWorldUpdate(ConfigureWasdInputMethod);
 
 		UniversalMenu.RegisterDriver("SharpModMenu", DriverInstance);
 
 		RegisterListener<OnTick>(OnTick);
 		RegisterListener<CheckTransmit>(OnCheckTransmit);
+	}
+
+	private void ConfigureWasdInputMethod()
+	{
+		if (PluginConfig.ForceFallbackInput)
+		{
+			DisableProcessUserCmdsHook();
+			UseFallbackWasdInputMethod = true;
+			Logger.LogInformation("SharpModMenu: fallback input forced; ProcessUserCmds hook is disabled.");
+			return;
+		}
+
+		ProcessUserCmdsFunc ??= new(ProcessUserCmdsSig, Addresses.ServerPath);
+		if (ProcessUserCmdsFunc.Handle == nint.Zero)
+		{
+			Logger.LogWarning("SharpModMenu: failed to hook ProcessUserCmds; using fallback input.");
+			UseFallbackWasdInputMethod = true;
+			return;
+		}
+
+		if (!IsProcessUserCmdsHooked)
+		{
+			ProcessUserCmdsFunc.Hook(ProcessUserCmds, HookMode.Pre);
+			IsProcessUserCmdsHooked = true;
+		}
+
+		UseFallbackWasdInputMethod = false;
+	}
+
+	private void DisableProcessUserCmdsHook()
+	{
+		if (!IsProcessUserCmdsHooked)
+		{
+			return;
+		}
+
+		ProcessUserCmdsFunc?.Unhook(ProcessUserCmds, HookMode.Pre);
+		IsProcessUserCmdsHooked = false;
 	}
 
 	private bool IsDebugEnabled()
@@ -383,7 +412,11 @@ public sealed class SharpModMenuPlugin : BasePlugin
 
 	// In WASD mode, pressing movement key beyond first/last item changes page automatically.
 	// AZERTY example: Z at top goes to previous page, S at bottom goes to next page.
-	""WasdAutoPage"": true
+	""WasdAutoPage"": true,
+
+	// Avoid the ProcessUserCmds hook and read buttons through the fallback input method.
+	// Enable this when another plugin, such as CS2AC, conflicts with that hook.
+	""ForceFallbackInput"": false
 }";
 
 		File.WriteAllText(path, defaultConfig);
@@ -579,7 +612,7 @@ public sealed class SharpModMenuPlugin : BasePlugin
 	{
 		UniversalMenu.UnregisterDriver("SharpModMenu");
 
-		ProcessUserCmdsFunc?.Unhook(ProcessUserCmds, HookMode.Pre);
+		DisableProcessUserCmdsHook();
 	}
 
 	private void OnTick()
@@ -1002,13 +1035,14 @@ public sealed class SharpModMenuPlugin : BasePlugin
 	public void SharpModMenuReload(CCSPlayerController? _, CommandInfo info)
 	{
 		LoadDataFiles();
+		ConfigureWasdInputMethod();
 		if (DriverInstance is not null)
 		{
 			DriverInstance.UpdateRuntimeData(RuntimeOptions, Translations);
 			DriverInstance.ForceRefreshAll();
 		}
 
-		info.ReplyToCommand($"SharpModMenu reloaded. config={ConfigPath} translations={TranslationsPath} HtmlFontClass={RuntimeOptions.HtmlFontClass} HtmlCompactFooterFontClass={RuntimeOptions.HtmlCompactFooterFontClass} FreezePlayerMovement={RuntimeOptions.FreezePlayerMovement} WasdAutoPage={RuntimeOptions.WasdAutoPage}");
+		info.ReplyToCommand($"SharpModMenu reloaded. config={ConfigPath} translations={TranslationsPath} HtmlFontClass={RuntimeOptions.HtmlFontClass} HtmlCompactFooterFontClass={RuntimeOptions.HtmlCompactFooterFontClass} FreezePlayerMovement={RuntimeOptions.FreezePlayerMovement} WasdAutoPage={RuntimeOptions.WasdAutoPage} ForceFallbackInput={PluginConfig.ForceFallbackInput}");
 	}
 
 	[ConsoleCommand("css_sharpmodmenu_pos_x")]

@@ -32,6 +32,7 @@ internal sealed class SharpModMenuPluginConfig
 	public string HtmlCompactFooterMessage { get; set; } = string.Empty;
 	public string HtmlCompactFooterFontClass { get; set; } = string.Empty;
 	public bool WasdAutoPage { get; set; } = true;
+	public bool ForceFallbackInput { get; set; }
 }
 
 internal sealed class SharpModMenuRuntimeOptions

@@ -42,5 +42,9 @@
 
 	// In WASD mode, pressing movement key beyond first/last item changes page automatically.
 	// AZERTY example: Z at top goes to previous page, S at bottom goes to next page.
-	"WasdAutoPage": true
+	"WasdAutoPage": true,
+
+	// Avoid the ProcessUserCmds hook and read buttons through the fallback input method.
+	// Enable this when another plugin, such as CS2AC, conflicts with that hook.
+	"ForceFallbackInput": false
 }
